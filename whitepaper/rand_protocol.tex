@@ -22,6 +22,20 @@
 \newtheorem{assumption}[theorem]{Assumption}
 \newtheorem{remark}[theorem]{Remark}
 
+% listings has no built-in Rust definition; define it so the document builds
+% on a stock TeX distribution (tectonic, texlive-basic) without extra packages.
+\lstdefinelanguage{Rust}{
+    keywords={as,async,await,break,const,continue,crate,dyn,else,enum,extern,%
+        false,fn,for,if,impl,in,let,loop,match,mod,move,mut,pub,ref,return,%
+        self,Self,static,struct,super,trait,true,type,unsafe,use,where,while},
+    keywords=[2]{bool,char,f32,f64,i8,i16,i32,i64,i128,isize,str,u8,u16,u32,%
+        u64,u128,usize,Vec,String,Option,Result,Box,Some,None,Ok,Err},
+    sensitive=true,
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    morestring=[b]",
+}
+
 % Code listing style
 \lstset{
     language=Rust,
@@ -37,8 +51,8 @@
     captionpos=b
 }
 
-\title{\textbf{Rand Protocol: A Permissionless Privacy Preserving Transactional System}\\[0.5em]
-\large A Hybrid Proof-of-Useful-Work and Byzantine Fault Tolerant Consensus Protocol\\with Privacy-Preserving Transactions on the Solana Virtual Machine}
+\title{\textbf{Rand Protocol: A Permissionless Privacy Layer for Solana}\\[0.5em]
+\large Post-Quantum Confidential Transfers via a Shielded Pool\\on the Solana Virtual Machine}
 
 \author{Dendi Suhubdy\\
 Bitwyre Research\\
@@ -51,10 +65,14 @@ Bitwyre Research\\
 \maketitle
 
 \begin{abstract}
-We present Rand, a novel blockchain architecture that combines Proof-of-Useful-Work (PoUW) with Byzantine Fault Tolerant (BFT) consensus to achieve both permissionless participation and fast transaction finality. Our system introduces a dual-token economy where validators earn ATLAS tokens through BFT consensus participation, while GPU provers earn SHRUG tokens by generating zero-knowledge proofs for privacy-preserving transactions. The architecture leverages the Solana Virtual Machine (SVM) for smart contract execution, enabling interoperability with the broader Solana ecosystem. We demonstrate that our hybrid approach achieves 2-6 second deterministic finality while maintaining permissionless entry through GPU proving, effectively transforming the wasteful computation of traditional Proof-of-Work into useful cryptographic work. We provide formal security analysis under standard cryptographic assumptions and demonstrate through theoretical analysis that the system can achieve throughput exceeding 5,000 transactions per second while supporting post-quantum secure private transactions using STARK proofs. The protocol ensures full supply auditability through on-chain verification mechanisms and transparent emission schedules.
+We present Rand, a privacy layer for Solana. Rather than launching a new Layer 1, Rand deploys as a set of Solana programs implementing a multi-asset shielded pool, together with an off-chain relayer network. Consensus, ordering, and settlement are inherited from Solana's Proof of History and its validator set; Rand introduces no consensus mechanism of its own and is not a validator client. This choice is deliberate: it lets confidential transfers operate directly over the native USDC and USDT mints already circulating on Solana, with no bridging and no wrapped assets, and it inherits Solana's throughput and fee structure rather than attempting to reproduce them.
+
+Confidentiality is achieved with a Zcash-style note and nullifier model. Shielded notes are commitments in a concurrent Merkle tree; spends publish nullifiers and a zero-knowledge proof establishing membership, correct nullifier derivation, spend authority, and value conservation. We adopt a deliberate asymmetry in our post-quantum posture, which we argue is the correct engineering tradeoff rather than a compromise: note encryption (ML-KEM), commitments (Poseidon), and in-circuit spend authorization (ML-DSA) are post-quantum, because ciphertexts published to a public ledger are permanently exposed to harvest-now-decrypt-later attacks. Proof soundness uses Groth16 over BN254, verified on-chain through Solana's \texttt{alt\_bn128} syscalls within a single 1232-byte transaction. Soundness is a live-network property enforced by an upgradeable program, so it can migrate to a post-quantum argument system when on-chain verification of one becomes economical; confidentiality cannot be retrofitted after the fact.
+
+A single native token, SHRUGG, pays for confidential transfers. We prove that a user who funds a shielded operation with transparent SOL thereby deanonymizes it, which makes an in-circuit fee token a structural requirement rather than an economic addition: SHRUGG is spent from within the shielded pool to compensate relayers who submit transactions and pay SOL fees on the user's behalf.
 \end{abstract}
 
-\noindent\textbf{Keywords:} Blockchain, Byzantine Fault Tolerance, Zero-Knowledge Proofs, Privacy, Proof-of-Useful-Work, Solana Virtual Machine, Supply Auditability
+\noindent\textbf{Keywords:} Solana, Shielded Pool, Zero-Knowledge Proofs, Confidential Transfers, Post-Quantum Cryptography, Groth16, Relayers, Solana Virtual Machine
 
 \tableofcontents
 \newpage
@@ -63,37 +81,30 @@ We present Rand, a novel blockchain architecture that combines Proof-of-Useful-W
 \section{Introduction}
 %==============================================================================
 
-The blockchain trilemma---the challenge of simultaneously achieving decentralization, security, and scalability---has driven extensive research into consensus mechanism design \cite{Buterin2017}. Traditional Proof-of-Work (PoW) systems like Bitcoin \cite{Nakamoto2008} provide strong security guarantees and permissionless participation but suffer from limited throughput and probabilistic finality. Proof-of-Stake (PoS) variants \cite{Kiayias2017, Gilad2017} improve efficiency but often introduce barriers to entry through minimum stake requirements.
+Solana provides high throughput, sub-second block times, and the deepest stablecoin liquidity of any high-performance chain: native USDC and USDT circulate directly on it, issued by Circle and Tether rather than bridged. What it does not provide is transaction privacy. Balances, counterparties, and amounts are public by default, which rules out a large class of legitimate uses---payroll, treasury operations, supplier payments, trading strategy---for any participant unwilling to publish their entire financial history.
 
-Privacy in blockchain transactions presents an orthogonal challenge. While systems like Zcash \cite{Hopwood2016} and Monero \cite{Noether2015} provide transaction privacy, they typically sacrifice smart contract functionality or rely on trusted setups. Recent advances in zero-knowledge proof systems, particularly STARKs \cite{BenSasson2018}, enable transparent, post-quantum secure proofs suitable for privacy-preserving computation.
+Existing approaches each give up something essential. Privacy-focused Layer 1s such as Zcash \cite{Hopwood2016} and Monero \cite{Noether2015} provide strong anonymity but exist as separate networks with their own assets, their own liquidity, and their own security budgets; a user wanting private USDC cannot use them without bridging. Solana's own Token-2022 confidential transfer extension \cite{SolanaToken2022} encrypts amounts using twisted ElGamal but leaves sender and recipient in plaintext, providing confidentiality without an anonymity set; moreover, because the extension must be enabled at mint creation, it cannot be applied to the existing native USDC and USDT mints, which are legacy SPL Token accounts. Privacy-preserving rollups obtain their own fee token and execution environment at the cost of bridged assets and fragmented liquidity.
 
-We introduce Rand, a blockchain architecture that addresses these challenges through:
+Rand takes the opposite approach. We do not build a chain. We observe that a shielded pool is expressible as a Solana program, that Solana already provides the pairing arithmetic needed to verify a succinct proof on-chain \cite{SolanaAltBn128}, and that the assets worth transacting privately are already present. Rand is therefore a privacy layer deployed \emph{onto} Solana: it inherits consensus, ordering, finality, and liquidity, and adds only what Solana lacks.
 
-\begin{enumerate}
-    \item \textbf{Hybrid PoUW-BFT Consensus:} Combining permissionless GPU proving with deterministic BFT finality
-    \item \textbf{Dual-Token Economy:} Separate incentive mechanisms for validators (ATLAS) and provers (SHRUG)
-    \item \textbf{Privacy-Preserving Transactions:} STARK-based private transfers with post-quantum security
-    \item \textbf{SVM Compatibility:} Full interoperability with Solana smart contracts and tooling
-\end{enumerate}
+We note explicitly what this rules out. Rand is not a Solana validator client in the sense of Agave or Firedancer. Those are interchangeable implementations of identical consensus rules, and a client that accepted transactions its peers rejected would fork the network rather than extend it. New transaction semantics on Solana come from programs, and that is where Rand lives.
 
 \subsection{Contributions}
 
 Our main contributions are:
 
 \begin{itemize}
-    \item A formal specification of the PoUW-BFT hybrid consensus protocol achieving $O(n)$ message complexity
-    \item Security proofs demonstrating Byzantine fault tolerance with up to $f < n/3$ faulty validators
-    \item A privacy-preserving transaction model using STARK proofs with formal privacy guarantees
-    \item Economic analysis of the dual-token incentive mechanism
-    \item Integration architecture for the Solana Virtual Machine
-    \item Complete supply auditability framework for both ATLAS and SHRUG tokens
-    \item Comprehensive ZK proof generation pipeline from Rust to STARK proofs
-    \item Detailed network architecture with performance specifications
+    \item A multi-asset shielded pool construction for Solana operating directly over native USDC, USDT, and SOL, with a single shared anonymity set across assets
+    \item A proof that transparent fee payment deanonymizes shielded operations, establishing an in-circuit fee token as a structural requirement, and a relayer mechanism satisfying it
+    \item A post-quantum threat analysis separating confidentiality from soundness, with justification for post-quantum note encryption alongside classically-sound proofs
+    \item A circuit specification and on-chain verification design fitting Solana's 1232-byte transaction and compute-unit limits
+    \item Concurrency treatment for shielded state under Solana's parallel execution, including recent-root windows and concurrent Merkle tree updates
+    \item Supply auditability for SHRUGG under partial shielding
 \end{itemize}
 
 \subsection{Paper Organization}
 
-Section \ref{sec:preliminaries} provides cryptographic preliminaries. Section \ref{sec:architecture} describes the system architecture. Section \ref{sec:consensus} presents the consensus protocol. Section \ref{sec:privacy} details the privacy-preserving transaction mechanism. Section \ref{sec:supply} explains supply auditability. Section \ref{sec:zkpipeline} covers the ZK proof generation pipeline. Section \ref{sec:network} describes network architecture. Section \ref{sec:economics} analyzes token economics. Section \ref{sec:security} provides security analysis. Section \ref{sec:implementation} discusses implementation. Section \ref{sec:related} reviews related work, and Section \ref{sec:conclusion} concludes.
+Section \ref{sec:preliminaries} provides cryptographic preliminaries. Section \ref{sec:architecture} describes the system architecture and the shielded fee token argument. Section \ref{sec:settlement} explains what Rand inherits from Solana. Section \ref{sec:privacy} details the shielded transfer construction. Section \ref{sec:supply} explains supply auditability. Section \ref{sec:zkpipeline} covers the proof generation pipeline. Section \ref{sec:economics} analyzes token economics. Section \ref{sec:security} provides security analysis. Section \ref{sec:implementation} discusses implementation. Section \ref{sec:related} reviews related work, and Section \ref{sec:conclusion} concludes.
 
 %==============================================================================
 \section{Preliminaries}
@@ -145,13 +156,15 @@ A commitment scheme $\mathsf{Comm} = (\mathsf{Setup}, \mathsf{Commit}, \mathsf{O
 \end{itemize}
 \end{definition}
 
-We use Pedersen commitments over elliptic curves for efficiency:
+Rand commits to notes with the Poseidon hash function \cite{Grassi2021}:
 \begin{equation}
-\mathsf{Comm}(v; r) = v \cdot G + r \cdot H
+\mathsf{Comm}(m; r) = \mathsf{Poseidon}(m \| r)
 \end{equation}
-where $G, H \in \mathbb{G}$ are independent generators of a group of prime order $q$.
+
+We prefer this to Pedersen commitments, despite the latter's additive homomorphism, for two reasons. Poseidon is algebraic over the proving field and costs roughly two orders of magnitude fewer constraints than a bitwise hash such as SHA-256, which dominates circuit size in practice. More importantly, Pedersen hiding rests on the discrete logarithm assumption and is therefore broken by a quantum adversary, whereas Poseidon's hiding is preserved. Since commitments are published permanently, this distinction matters for the reasons developed in Section \ref{sec:pqposture}.
 
 \subsection{Zero-Knowledge Proofs}
+\label{sec:prelimzk}
 
 \begin{definition}[Zero-Knowledge Argument System]
 A zero-knowledge argument system for relation $R$ consists of $(\mathsf{Prove}, \mathsf{Verify})$ satisfying:
@@ -162,21 +175,23 @@ A zero-knowledge argument system for relation $R$ consists of $(\mathsf{Prove}, 
 \end{itemize}
 \end{definition}
 
-We employ STARKs (Scalable Transparent Arguments of Knowledge) \cite{BenSasson2018} for zero-knowledge proofs, providing:
-\begin{itemize}
-    \item Transparent setup (no trusted ceremony)
-    \item Post-quantum security (hash-based)
-    \item Proof size: $O(\log^2 n)$ for computation of size $n$
-    \item Verification time: $O(\log^2 n)$
-\end{itemize}
+We employ Groth16 \cite{Groth2016} over the BN254 curve as our argument system. This choice is driven by a hard platform constraint rather than by preference, and we state the reasoning explicitly because it departs from the transparent, post-quantum proof systems otherwise attractive for this application.
 
-\subsection{Byzantine Fault Tolerance}
+A Solana transaction is limited to 1232 bytes, derived from the IPv6 minimum MTU. A Groth16 proof is three curve points, approximately 256 bytes, and therefore fits alongside its public inputs in a single transaction. Verification consists of a small fixed number of pairings, available as the \texttt{alt\_bn128} syscalls \cite{SolanaAltBn128}, and completes well inside the per-transaction compute budget.
 
-\begin{definition}[Byzantine Fault Tolerance]
-A distributed protocol is Byzantine fault tolerant if it maintains safety and liveness properties in the presence of up to $f$ Byzantine (arbitrarily malicious) nodes out of $n$ total nodes, where $f < n/3$.
+STARKs \cite{BenSasson2018} are transparent and post-quantum, and were the natural candidate. They are nonetheless impractical here: a FRI-based proof for this circuit is 50--200\,KB, so submitting one would require first uploading it in roughly 1\,KB fragments across on the order of 200 transactions, paying rent on the accumulating account, and only then verifying it across further transactions. The resulting cost and latency per transfer are not defensible for a payment system. We revisit this tradeoff, and the conditions under which it reverses, in Section \ref{sec:pqposture}.
+
+Groth16 requires a per-circuit trusted setup. Because Rand's circuit is fixed rather than general-purpose, this is a one-time cost, discharged by a public multi-party ceremony in which security holds if any single participant is honest.
+
+\subsection{Merkle Accumulators}
+
+\begin{definition}[Merkle Accumulator]
+A Merkle accumulator over a set $S$ is a binary tree whose leaves are the elements of $S$ and whose internal nodes are hashes of their children. The root $\mathsf{rt}$ commits to $S$; membership of $x \in S$ is proven by a path of $O(\log |S|)$ sibling hashes.
 \end{definition}
 
-The classical result of Lamport et al. \cite{Lamport1982} establishes that $n \geq 3f + 1$ nodes are necessary and sufficient for Byzantine agreement.
+Rand uses accumulators for two distinct purposes with different requirements. Note commitments are held in an append-only tree whose root must be updatable by many concurrent writers within a single Solana slot; we use a concurrent Merkle tree with a changelog buffer for this. Nullifiers require efficient \emph{non}-membership decisions, which we address in Section \ref{sec:privacy}.
+
+Because Rand operates as a program on Solana rather than as an independent network, Byzantine agreement is not among the properties it must establish. Safety and liveness of ordering are inherited; see Section \ref{sec:settlement}.
 
 %==============================================================================
 \section{System Architecture}
@@ -185,56 +200,77 @@ The classical result of Lamport et al. \cite{Lamport1982} establishes that $n \g
 
 \subsection{Overview}
 
-The Rand architecture consists of four primary layers:
+Rand is not a blockchain. It is a set of Solana programs plus an off-chain relayer network, and its architecture is best understood by what it delegates rather than what it contains.
+
+\begin{table}[H]
+\centering
+\caption{Separation of Responsibilities}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Concern} & \textbf{Provided by} & \textbf{Rand's role} \\ \midrule
+Ordering, finality & Solana (Proof of History) & none: inherited \\
+Sybil resistance & Solana (Proof of Stake) & none: inherited \\
+Execution & Solana Virtual Machine & deploys programs onto it \\
+Base fees & SOL & pays them via relayers \\
+Asset issuance & Circle, Tether, Solana & none: uses native mints \\
+Shielded state & \textbf{Rand} & commitment tree, nullifier set \\
+Proof verification & \textbf{Rand} & on-chain Groth16 verifier \\
+Sender anonymity & \textbf{Rand} & relayers, in-circuit fees \\ \bottomrule
+\end{tabular}
+\end{table}
+
+Concretely, Rand comprises three on-chain programs and one off-chain role:
 
 \begin{enumerate}
-    \item \textbf{Consensus Layer:} HotStuff BFT + Validator Set
-    \item \textbf{Execution Layer:} Solana Virtual Machine (SVM)
-    \item \textbf{Privacy Layer:} STARK Proofs + Commitment Trees
-    \item \textbf{Network Layer:} P2P Gossip + Prover Pool
+    \item \textbf{Shielded Pool Program:} custodies deposited assets, maintains the note commitment tree and nullifier set, and applies validated state transitions
+    \item \textbf{Verifier Program:} checks Groth16 proofs via \texttt{alt\_bn128}, invoked by the pool program
+    \item \textbf{Relayer Registry:} advertises relayers and their fee expectations, and settles in-circuit SHRUGG fees
+    \item \textbf{Relayers} (off-chain): submit shielded transactions, paying SOL fees so users need not reveal a transparent account
 \end{enumerate}
 
-\subsection{Dual-Token Model}
+Note that proof \emph{generation} is not an architectural component. A two-input, two-output shielded transfer is provable client-side in a few seconds, so users prove their own transfers; Rand requires no proving network, and we do not posit one.
 
-The system operates with two native tokens:
+\subsection{Token Model}
 
-\begin{definition}[ATLAS Token]
-The public utility token ATLAS serves as:
+Rand has one native token. Roles that a standalone Layer 1 would assign to its own staking and gas asset are discharged by SOL, because Rand consumes Solana's consensus rather than operating its own.
+
+\begin{definition}[SHRUGG Token]
+SHRUGG is the fee asset for confidential transfers. It serves:
 \begin{itemize}
-    \item Gas payment for public transactions
-    \item Staking collateral for validators
-    \item Governance voting power
-    \item Component of USDB stablecoin backing
+    \item Payment for shielded operations, spent from within the pool
+    \item Compensation to relayers who submit transactions and pay SOL base fees
+    \item Fee asset for confidential transfers of zUSDT, the fully-reserved shielded USDT \cite{zUSDTPaper}
 \end{itemize}
 \end{definition}
 
-\begin{definition}[SHRUG Token]
-The private utility token SHRUG serves as:
-\begin{itemize}
-    \item Gas payment for private transactions
-    \item Reward for GPU provers generating ZK proofs
-    \item Component of USDB stablecoin backing
-\end{itemize}
-\end{definition}
+\begin{remark}[On the absence of a staking token]
+Earlier versions of this work specified a second token, ATLAS, as staking collateral and gas for public transactions on a Rand Layer 1. Once consensus is inherited from Solana there is no validator set for such a token to secure and no public transaction class for it to price, so it has been removed; SOL occupies that position.
 
-\subsection{Rationale for Dual Gas Tokens}
+A related simplification followed. Earlier work proposed USDB, a fractional-algorithmic stablecoin using ATLAS and SHRUGG as volatility absorbers. With ATLAS removed, and with native USDT available on the same chain as the pool, full reserving became the simpler and stronger option: zUSDT \cite{zUSDTPaper} is backed one-to-one by native USDT held in a Solana program, and therefore carries no peg mechanism to defend and no reflexive failure mode. SHRUGG's role is consequently confined to paying for confidentiality, which Section \ref{sec:feetoken} shows is a structural requirement.
+\end{remark}
 
-A critical design decision in Rand is the separation of gas payment into two distinct tokens: ATLAS for public transactions and SHRUG for private transactions. This separation addresses several fundamental challenges in privacy-preserving blockchain design.
+\subsection{Rationale for a Shielded Fee Token}
+\label{sec:feetoken}
 
-\begin{theorem}[Gas Payment Privacy Leakage]
-In single-token systems where private transactions pay gas in the same token as public transactions, an adversary can correlate private transaction senders with public identities through gas payment patterns.
+Solana charges base fees in SOL, so it is reasonable to ask why a confidential transfer layer needs a fee token at all. The answer is that transparent fee payment destroys the privacy the layer exists to provide. This is not an economic preference but a structural constraint, and we state it as a theorem.
+
+\begin{theorem}[Transparent Fee Payment Deanonymises]
+\label{thm:feeleak}
+If a shielded operation is funded by a transparent fee payment from an account $A$, then the anonymity set of that operation collapses to the owner of $A$, irrespective of the strength of the underlying zero-knowledge proof.
 \end{theorem}
 
 \begin{proof}
-Consider a user with public identity $\text{id}_{\text{pub}}$ holding tokens at address $A$. To execute a private transaction $\text{tx}_{\text{priv}}$, they must pay gas from $A$, creating the linkage:
+Let $\text{tx}_{\text{priv}}$ be a shielded operation whose zero-knowledge proof reveals nothing beyond its public inputs. Solana requires every transaction to be signed by a fee payer and debits that account in SOL. Suppose the user signs as fee payer from account $A$, where $A$ is linked to public identity $\text{id}_{\text{pub}}$ through prior transparent activity. The ledger then records
 \begin{equation}
-\text{tx}_{\text{priv}} \xleftarrow{\text{gas payment}} A \xleftarrow{\text{ownership}} \text{id}_{\text{pub}}
+\text{tx}_{\text{priv}} \xleftarrow{\text{fee payer signature}} A \xleftarrow{\text{ownership}} \text{id}_{\text{pub}}
 \end{equation}
-This reveals that $\text{id}_{\text{pub}}$ initiated $\text{tx}_{\text{priv}}$, defeating privacy.
+An observer reads the association directly from the transaction, without attacking the proof system. The proof remains sound and zero-knowledge; the metadata surrounding it is what leaks. Hence anonymity requires that the fee payer be someone other than the user, which in turn requires a mechanism to compensate that party without creating a second transparent link.
 \end{proof}
 
-\begin{proposition}[Privacy-Preserving Gas]
-SHRUG tokens can be held in shielded form and spent for gas within the zero-knowledge circuit, preserving sender anonymity:
+Theorem \ref{thm:feeleak} is why Rand employs relayers, and why they must be paid from inside the shielded pool. A relayer signs as fee payer and pays SOL; the user compensates it with SHRUGG deducted within the circuit, so no transparent account belonging to the user ever appears. Paying the relayer transparently, or in SOL from the user's own account, would reintroduce exactly the linkage the theorem describes.
+
+\begin{proposition}[Privacy-Preserving Fees]
+SHRUGG can be held in shielded form and spent for fees within the zero-knowledge circuit, preserving sender anonymity:
 \begin{equation}
 R_{\text{private\_gas}} = \left\{
 \begin{array}{l}
@@ -246,44 +282,48 @@ R_{\text{private\_gas}} = \left\{
 \end{equation}
 \end{proposition}
 
-\subsection{Economic Separation of Concerns}
+\subsection{Relayer Economics}
 
-The dual-token model creates distinct economic incentive structures:
+The relayer market is a two-sided auction over a public queue of pending shielded operations. A relayer observes an operation carrying an in-circuit fee $f_{\text{SHRUGG}}$, estimates its SOL cost $c_{\text{SOL}}$ (base fee, priority fee, and any rent for nullifier accounts), and submits when
 
-\begin{enumerate}
-    \item \textbf{Independent Price Discovery:} ATLAS and SHRUG prices reflect their respective ecosystem demands
-    \item \textbf{Diversified Stablecoin Backing:} Low correlation between ATLAS and SHRUG prices provides diversification for USDB backing
-    \item \textbf{Specialized Incentives:} Validators optimize for consensus performance (ATLAS rewards), while GPU provers optimize for proof generation (SHRUG rewards)
-\end{enumerate}
+\begin{equation}
+f_{\text{SHRUGG}} \cdot p_{\text{SHRUGG}} > c_{\text{SOL}} \cdot p_{\text{SOL}}
+\end{equation}
+
+for prevailing prices $p$. Three properties follow. Relaying is permissionless, since any account with SOL can serve the queue. It is competitive, since relayers are interchangeable and cannot alter the operation they submit: the proof binds all public inputs, so a relayer may only submit or decline. And censorship is weak, since declining an operation leaves it available to every other relayer.
+
+The user's exposure is bounded. A relayer learns the transaction's public inputs, which it would learn from the ledger regardless, plus the network origin of the request. The latter is mitigated by submitting over an anonymising transport, and is the residual metadata risk discussed in Section \ref{sec:security}.
 
 \subsection{Resource Accounting}
 
-Private transactions consume fundamentally different resources than public transactions:
+A shielded transfer and an ordinary Solana transfer consume different resources, which is what the fee split between SOL and SHRUGG prices.
 
 \begin{table}[H]
 \centering
 \caption{Resource Consumption by Transaction Type}
 \begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Resource} & \textbf{Public Tx} & \textbf{Private Tx} \\ \midrule
-SVM computation & High & Low \\
-State storage & Variable & Fixed (commitments) \\
-Bandwidth & Low & High (proofs 50-200KB) \\
-GPU proving & None & High (3-10 seconds) \\
-Verification & Signature only & STARK verification \\ \bottomrule
+\textbf{Resource} & \textbf{Transparent Tx} & \textbf{Shielded Tx} \\ \midrule
+SVM computation & Low & Moderate (pairings, tree update) \\
+State storage & Variable & Fixed (commitment, nullifier) \\
+Transaction size & $\sim$300 bytes & $\sim$800 bytes (proof + inputs) \\
+Client proving & None & 2--4 seconds, CPU \\
+Verification & Signature only & Groth16 via \texttt{alt\_bn128} \\
+Fee asset & SOL & SOL (relayer) + SHRUGG (user) \\ \bottomrule
 \end{tabular}
 \end{table}
 
-Separate gas tokens allow accurate pricing of these distinct resource profiles without cross-subsidization.
+The SOL component compensates the relayer for costs Solana imposes; the SHRUGG component is what the user can pay without revealing a transparent account. Pricing them in one asset is not possible for the reason given in Theorem \ref{thm:feeleak}.
 
 \subsection{Participant Roles}
 
 \begin{enumerate}
-    \item \textbf{Validators:} Stake ATLAS tokens, participate in BFT consensus, earn ATLAS block rewards
-    \item \textbf{GPU Provers:} Generate STARK proofs for private transactions, earn SHRUG tokens
-    \item \textbf{Users:} Submit public or private transactions, pay fees in respective tokens
-    \item \textbf{Delegators:} Delegate ATLAS to validators, earn proportional rewards
+    \item \textbf{Users:} deposit into the pool, prove their own transfers client-side, and pay SHRUGG fees in-circuit
+    \item \textbf{Relayers:} submit shielded transactions, pay SOL base fees, and collect SHRUGG
+    \item \textbf{Solana validators:} order and finalise transactions; they run unmodified Agave or Firedancer and need not be aware of Rand
 \end{enumerate}
+
+Rand has no validator role, no staking role, and no proving role of its own. This is the intended consequence of building on Solana rather than beside it.
 
 \subsection{Solana Virtual Machine Integration}
 
@@ -311,77 +351,45 @@ Two transactions $\text{tx}_1$ and $\text{tx}_2$ can execute in parallel if and 
 \end{definition}
 
 %==============================================================================
-\section{Consensus Protocol}
-\label{sec:consensus}
+\section{Settlement on Solana}
+\label{sec:settlement}
 %==============================================================================
 
-\subsection{HotStuff BFT}
+Rand specifies no consensus protocol. This section records what is inherited, and what that inheritance costs, since the guarantees Rand can offer are bounded by Solana's.
 
-We employ HotStuff \cite{Yin2019} as our BFT consensus protocol due to its linear message complexity and optimistic responsiveness. The protocol proceeds in views, each with a designated leader.
+\subsection{Inherited Properties}
 
-\begin{definition}[Quorum Certificate]
-A Quorum Certificate (QC) for block $B$ at view $v$ is a set of signatures from at least $2f + 1$ validators on the tuple $(B.\text{hash}, v, \text{type})$ where $\text{type} \in \{\text{prepare}, \text{precommit}, \text{commit}\}$.
-\end{definition}
+Solana orders transactions using Proof of History \cite{Yakovenko2018}, a sequential hash chain acting as a verifiable clock, with stake-weighted leader rotation and a Proof-of-Stake validator set determining canonical history. Rand inherits, without restating or reproving:
 
-\begin{algorithm}[H]
-\caption{HotStuff Consensus Protocol (Leader)}
-\begin{algorithmic}[1]
-\Procedure{LeaderProtocol}{$v$}
-    \State $B \leftarrow \text{BuildBlock}(\text{mempool}, \text{proofs})$ \Comment{Include ZK proofs}
-    \State broadcast $\langle\text{PREPARE}, v, B, \text{highQC}\rangle$
-    \State wait for $2f + 1$ PREPARE votes
-    \State $\text{prepareQC} \leftarrow \text{CreateQC}(\text{votes})$
-    \State broadcast $\langle\text{PRE-COMMIT}, v, \text{prepareQC}\rangle$
-    \State wait for $2f + 1$ PRE-COMMIT votes
-    \State $\text{precommitQC} \leftarrow \text{CreateQC}(\text{votes})$
-    \State broadcast $\langle\text{COMMIT}, v, \text{precommitQC}\rangle$
-    \State wait for $2f + 1$ COMMIT votes
-    \State $\text{commitQC} \leftarrow \text{CreateQC}(\text{votes})$
-    \State $\text{FinalizeBlock}(B, \text{commitQC})$
-\EndProcedure
-\end{algorithmic}
-\end{algorithm}
+\begin{itemize}
+    \item \textbf{Ordering:} a total order over shielded operations, hence a well-defined nullifier insertion sequence
+    \item \textbf{Sybil resistance:} economic weight from staked SOL
+    \item \textbf{Liveness and censorship resistance:} at Solana's level, across its validator set
+    \item \textbf{Finality:} on Solana's schedule, not one Rand chooses
+\end{itemize}
 
-\subsection{Validator Set Management}
+\subsection{Consequences of Inheritance}
 
-\begin{definition}[Validator Registration]
-Any entity can register as a validator by:
-\begin{enumerate}
-    \item Staking minimum $S_{\min}$ ATLAS tokens
-    \item Publishing validator public key and network endpoint
-    \item Meeting hardware/bandwidth requirements
-\end{enumerate}
-No approval or election is required.
-\end{definition}
+Inheritance is not free, and we state the resulting limits plainly.
 
-The active validator set $V_{\text{active}}$ for epoch $e$ consists of the top $N$ validators by total stake:
+Rand's safety is upper-bounded by Solana's. A consensus failure that reorganised finalised Solana history could reorder nullifier insertions and thereby permit a double-spend within the pool; no property of the shielded construction defends against this, and Rand's security argument is conditional on Solana's.
+
+Liveness is likewise inherited. Under congestion, shielded operations compete for block space with all other Solana activity, and relayers must bid priority fees accordingly.
+
+Rand cannot alter the fee asset, the compute budget, or the 1232-byte transaction limit. These are protocol parameters of the host chain and appear throughout this work as fixed constraints rather than design variables; the argument system of Section \ref{sec:prelimzk} is chosen because of them.
+
+\subsection{Concurrency}
+\label{sec:concurrency}
+
+Solana executes non-conflicting transactions in parallel and admits many transactions per slot, which creates a problem absent from single-writer chains: two shielded transfers proven against the same commitment tree root may land in the same slot, and the second would be invalid against the root the first produced.
+
+Rand addresses this in two ways. The commitment tree is a concurrent Merkle tree carrying a changelog buffer, permitting many appends per slot without invalidating in-flight proofs. Additionally, the pool program accepts proofs against any of the most recent $k$ roots, retained in a ring buffer:
+
 \begin{equation}
-V^{(e)}_{\text{active}} = \text{TopN}(\{(v, s_v + d_v) : v \in V_{\text{registered}}\}, N)
+\mathsf{valid}(\pi, \mathsf{rt}) \iff \mathsf{rt} \in \{\mathsf{rt}_{h}, \mathsf{rt}_{h-1}, \ldots, \mathsf{rt}_{h-k+1}\}
 \end{equation}
-where $s_v$ is self-stake and $d_v$ is delegated stake for validator $v$.
 
-\subsection{Leader Selection}
-
-Leaders are selected deterministically using stake-weighted random sampling:
-\begin{equation}
-\text{Leader}(v) = V_{\text{active}}[i] \text{ where } i = \text{VRF}(\text{epoch\_seed}, v) \mod |V_{\text{active}}|
-\end{equation}
-weighted by stake proportion to ensure fair opportunity distribution.
-
-\subsection{Slashing Conditions}
-
-\begin{table}[H]
-\centering
-\caption{Slashing Conditions and Penalties}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Violation} & \textbf{Slash Percentage} & \textbf{Jail Duration} \\ \midrule
-Double signing & 33\% & Permanent \\
-Extended downtime ($>$ 24h) & 1\% & 7 days \\
-Invalid block proposal & 50\% & Permanent \\
-Censorship (provable) & 10\% & 30 days \\ \bottomrule
-\end{tabular}
-\end{table}
+We take $k = 64$. Enlarging $k$ improves tolerance to proving latency; it also widens the window in which a stale root may be used, which is harmless for soundness (nullifiers are checked against current state regardless) but does weaken anonymity slightly, since the choice of root narrows the set of blocks a transfer could have been constructed against.
 
 %==============================================================================
 \section{Privacy-Preserving Transactions}
@@ -434,34 +442,74 @@ R_{\text{transfer}} = \left\{
 \right\}
 \end{equation}
 
-\subsection{STARK Proof System}
-
-We employ the FRI-based STARK protocol \cite{BenSasson2018} for proof generation:
+\subsection{Proof System and On-Chain Verification}
 
 \begin{table}[H]
 \centering
-\caption{STARK Proof System Parameters}
+\caption{Groth16 Instantiation}
 \begin{tabular}{@{}ll@{}}
 \toprule
 \textbf{Parameter} & \textbf{Value} \\ \midrule
-Field & $\mathbb{F}_p$ where $p = 2^{64} - 2^{32} + 1$ (Goldilocks) \\
-Hash function & BLAKE3 \\
-Blowup factor & 8 \\
-Number of queries & 30 \\
-Proof size & $\sim$50-200 KB \\
-Verification time & $\sim$2-5 ms \\
-Security level & 100+ bits \\ \bottomrule
+Curve & BN254 (alt\_bn128) \\
+Argument system & Groth16 \cite{Groth2016} \\
+In-circuit hash & Poseidon \cite{Grassi2021} \\
+Proof size & $\sim$256 bytes (3 curve points) \\
+Public inputs & root, 2 nullifiers, 2 commitments, asset, fee \\
+Verification & 3 pairings via \texttt{alt\_bn128} syscalls \\
+Setup & per-circuit, discharged by public MPC ceremony \\ \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Encrypted Outputs}
+The design target is that proof verification, nullifier insertion, and commitment tree append complete within one transaction, both in size and in compute budget. Size is comfortable: a 256-byte proof plus public inputs and account metadata fits the 1232-byte limit. Compute is the binding constraint, since the pairing check, the tree update, and the program's own logic share a per-transaction budget.
+
+\begin{remark}[Figures requiring empirical confirmation]
+Published costs for the \texttt{alt\_bn128} syscalls, and the residual budget after a concurrent Merkle tree append, must be measured against the current runtime rather than assumed. Should the combined cost exceed the per-transaction budget, the fallback is to split verification and tree update across two transactions bound by a session account; this preserves the single-proof-upload property, which is the reason Groth16 was chosen, while relaxing atomicity. We flag this explicitly rather than presenting an unverified figure.
+\end{remark}
+
+\subsection{Nullifier Set}
+
+Preventing double-spends requires deciding, for each presented nullifier, whether it has appeared before. Unlike commitments, this demands efficient \emph{non}-membership.
+
+\begin{table}[H]
+\centering
+\caption{Nullifier Set Designs}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Design} & \textbf{On-chain cost} & \textbf{Circuit cost} & \textbf{Parallelism} \\ \midrule
+One account per nullifier & rent per spend & none & full \\
+Indexed Merkle tree & root only & non-membership path & limited \\
+Bloom filter & compact & none & full \\ \bottomrule
+\end{tabular}
+\end{table}
+
+Rand adopts one program-derived account per nullifier, seeded by the nullifier itself. Existence of the account is non-membership's negation, decided by the runtime at no circuit cost, and distinct spends touch distinct accounts so they never conflict under parallel execution. The cost is rent per spend, which is bounded and also prices spam. A Bloom filter is unusable here: a false positive would reject a legitimate spend and permanently freeze the note. An indexed Merkle tree removes the rent but requires proving non-membership in-circuit and serialises writers on a single root account, which is the opposite of what Solana's execution model rewards; it remains the migration path should rent dominate.
+
+\subsection{Note Discovery}
+\label{sec:discovery}
+
+A recipient must learn of notes addressed to them. This is the least settled part of the design, and we prefer to state that plainly rather than assert a solution.
+
+\begin{table}[H]
+\centering
+\caption{Note Discovery Approaches}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Approach} & \textbf{Trust assumption} & \textbf{Cost to client} \\ \midrule
+Trial decryption & none & $O(n)$ in all outputs \\
+Viewing-key indexer & indexer sees all & $O(1)$ \\
+Fuzzy message detection & server sees decoy set & $O(pn)$ \\
+Oblivious retrieval & none (cryptographic) & $O(1)$, costly server \\ \bottomrule
+\end{tabular}
+\end{table}
+
+Rand specifies trial decryption for the initial deployment, with note ciphertexts laid out so that a short prefix suffices to reject a non-matching output. This assumes no additional trust, at the cost of a scan linear in pool activity. We consider a viewing-key indexer unacceptable as a protocol component, since it reconstitutes precisely the observer the system exists to defeat, though nothing prevents a user from delegating to one voluntarily. Fuzzy message detection \cite{Beck2021}, as deployed by Penumbra, is the intended path for constrained clients: it exposes a tunable false-positive rate rather than the true recipient set. Oblivious message retrieval \cite{Liu2022} is the strongest known construction and the eventual goal, currently gated on server-side cost.\subsection{Encrypted Outputs}
 
 Recipients learn of incoming notes through encrypted outputs attached to transactions:
 \begin{equation}
 \text{enc\_note} = \text{Enc}_{\text{pk}_{\text{recipient}}}(\text{note})
 \end{equation}
 
-We use Kyber \cite{Bos2018} for post-quantum secure key encapsulation.
+We use ML-KEM (CRYSTALS-Kyber) \cite{Bos2018} for key encapsulation. This is the single most consequential post-quantum decision in the protocol, and the reasoning is asymmetric to that governing proofs. A note ciphertext is published to a permanent public ledger, so an adversary may record it today and decrypt it whenever a sufficiently capable quantum computer exists. No later protocol upgrade can withdraw a ciphertext already published. Confidentiality must therefore be post-quantum from the first transaction, whereas soundness, being a property enforced afresh at each verification by an upgradeable program, need not be. Section \ref{sec:pqposture} develops this argument.
 
 %==============================================================================
 \section{Supply Auditability and Transparency}
@@ -470,67 +518,31 @@ We use Kyber \cite{Bos2018} for post-quantum secure key encapsulation.
 
 \subsection{Motivation for Supply Auditability}
 
-Users, validators, and ecosystem participants must be able to independently verify:
+Because a portion of SHRUGG resides inside the shielded pool and is therefore not directly observable, holders must be able to verify independently that:
 \begin{enumerate}
-    \item Total supply of ATLAS and SHRUG at any point in time
-    \item Emission rates match the published schedule
-    \item No unauthorized token creation has occurred
+    \item Total SHRUGG supply is what the emission schedule implies
+    \item No unauthorised issuance has occurred, whether transparent or shielded
+    \item Shielded and transparent balances reconcile to the total
     \item Burn mechanisms function correctly
 \end{enumerate}
 
-\subsection{ATLAS Supply Auditability}
+Shielding creates a genuine tension: an opaque pool could in principle conceal inflation. The construction below resolves it by making the pool's aggregate holdings verifiable without revealing any individual note.
 
-\begin{definition}[ATLAS Supply Formula]
-The total ATLAS supply at block height $h$ is deterministically computed as:
+\subsection{SHRUGG Supply Auditability}
+
+\begin{definition}[SHRUGG Supply Formula]
+Since Rand issues no block rewards, supply evolves only through scheduled emission and burns:
 \begin{equation}
-S_{\text{ATLAS}}(h) = S_{\text{initial}} + \sum_{i=0}^{h} \text{BlockReward}(i) + \sum_{i=0}^{h} \text{StakingRewards}(i) - \sum_{i=0}^{h} \text{Burned}(i)
+S_{\text{SHRUGG}}(s) = S_{\text{initial}} + \sum_{i=0}^{s} \text{Emission}(i) - \sum_{i=0}^{s} \text{Burned}(i)
 \end{equation}
-where $S_{\text{initial}} = 500{,}000{,}000$ ATLAS (genesis allocation).
+over Solana slots $s$, with $S_{\text{initial}} = 200{,}000{,}000$ SHRUGG.
 \end{definition}
 
-Every block header contains a \texttt{supply\_commitment} field:
-
-\begin{lstlisting}[caption=Block Header Supply Fields]
-pub struct BlockHeader {
-    // ... other fields
-    pub atlas_supply_root: Hash,      // Merkle root of supply proof
-    pub atlas_total_supply: u64,      // Claimed total supply
-    pub atlas_supply_delta: i64,      // Change from previous block
-}
-\end{lstlisting}
-
-\begin{algorithm}[H]
-\caption{ATLAS Supply Verification}
-\begin{algorithmic}[1]
-\Procedure{VerifyATLASSupply}{block}
-    \State $\text{calculated\_delta} \gets \text{block.coinbase\_amount} - \text{block.burned\_fees}$
-    \State \textbf{require} $\text{calculated\_delta} = \text{block.header.atlas\_supply\_delta}$
-    \State $\text{prev\_supply} \gets \text{GetPreviousBlock(block).header.atlas\_total\_supply}$
-    \State \textbf{require} $\text{block.header.atlas\_total\_supply} = \text{prev\_supply} + \text{calculated\_delta}$
-    \State $\text{expected\_reward} \gets \text{ComputeBlockReward(block.height)}$
-    \State \textbf{require} $\text{block.coinbase\_amount} \leq \text{expected\_reward} + \text{tolerance}$
-    \State \textbf{return} \texttt{true}
-\EndProcedure
-\end{algorithmic}
-\end{algorithm}
-
-\subsection{SHRUG Supply Auditability}
-
-\begin{definition}[SHRUG Supply Formula]
-\begin{equation}
-S_{\text{SHRUG}}(h) = S_{\text{initial}} + \sum_{i=0}^{h} \text{ProvingRewards}(i) + \sum_{i=0}^{h} \text{DemandBonus}(i) - \sum_{i=0}^{h} \text{Burned}(i)
-\end{equation}
-where $S_{\text{initial}} = 200{,}000{,}000$ SHRUG.
-\end{definition}
-
-The demand multiplier is deterministically computed from on-chain data:
-\begin{equation}
-\text{multiplier}(\text{epoch}) = \max\left(0.5, \min\left(2.0, 1 + \frac{\text{proofs}_{\text{epoch}} - \text{target}}{\text{target}}\right)\right)
-\end{equation}
+Emission follows a published schedule evaluated as a function of slot height, so any observer can recompute the expected supply from the mint account alone. Rand deliberately does not tie emission to usage: a demand-responsive schedule would make supply a function of shielded activity, and inferring that activity is exactly the capability the protocol denies observers. Fixing emission avoids constructing a side channel out of monetary policy.
 
 \subsection{Privacy-Preserving Supply Verification}
 
-For SHRUG tokens in the privacy pool, supply verification requires special handling through zero-knowledge supply proofs:
+Total supply is verifiable from the mint, but reconciling it against the pool requires care, since pool contents are hidden. The pool proves its aggregate solvency without revealing individual notes:
 
 \begin{equation}
 R_{\text{supply\_audit}} = \left\{
@@ -551,10 +563,12 @@ R_{\text{supply\_audit}} = \left\{
 
 \subsection{Overview}
 
-This section provides a comprehensive walkthrough of ZK proof generation:
+Proof generation runs on the user's own machine, not on dedicated hardware. The pipeline is:
 \begin{equation}
-\text{Rust Code} \to \text{Bytecode} \to \text{AIR Constraints} \to \text{Execution Trace} \to \text{FRI Polynomial} \to \text{STARK Proof}
+\text{Rust circuit} \to \text{R1CS} \to \text{Witness} \to \text{MSM over BN254} \to \text{Groth16 proof}
 \end{equation}
+
+Circuit size, and hence proving time, is dominated by Poseidon invocations: two Merkle paths of depth 32 plus commitment and nullifier derivations. Choosing an algebraic hash rather than SHA-256 is what keeps this in the range where a laptop can prove a transfer in seconds instead of minutes.
 
 \subsection{Step 1: Rust Circuit Definition}
 
@@ -596,28 +610,20 @@ impl PrivateTransferCircuit {
 }
 \end{lstlisting}
 
-\subsection{Step 2: Algebraic Intermediate Representation (AIR)}
+\subsection{Step 2: Rank-1 Constraint System}
 
-\begin{definition}[AIR Constraints]
-An AIR defines polynomial constraints $C_i$ that must equal zero for every row of the execution trace:
+\begin{definition}[R1CS]
+An R1CS instance is a set of triples $(a_i, b_i, c_i)$ of vectors over $\mathbb{F}_p$; a witness $w$ satisfies it when
 \begin{equation}
-\forall t : C_i(\text{trace}[t], \text{trace}[t+1], \ldots, \text{trace}[t+k]) = 0
+\forall i : \langle a_i, w \rangle \cdot \langle b_i, w \rangle = \langle c_i, w \rangle
 \end{equation}
 \end{definition}
 
-\subsection{SVM Instruction ZK-Compatibility}
+Groth16 proves satisfiability of a fixed R1CS instance, which suits Rand precisely because the shielded transfer circuit is fixed. The per-circuit trusted setup that Groth16 requires is therefore paid once.
 
-\begin{theorem}[SVM Instruction ZK-Compatibility]
-Every SVM instruction can be represented as an AIR constraint system, enabling zero-knowledge execution of arbitrary SVM programs.
-\end{theorem}
-
-\begin{proof}[Proof Sketch]
-\begin{enumerate}
-    \item \textbf{Deterministic Execution:} SVM instructions are deterministic functions
-    \item \textbf{Algebraic Representation:} Each instruction decomposes into field operations
-    \item \textbf{Instruction-to-AIR Mapping:} Every instruction maps to polynomial constraints
-\end{enumerate}
-\end{proof}
+\begin{remark}[General SVM execution is out of scope]
+An earlier formulation of this work claimed that arbitrary SVM instructions could be expressed as constraint systems, enabling zero-knowledge execution of general Solana programs. That claim is withdrawn here. While true in principle, a zkVM for sBPF is a substantially larger undertaking than a fixed transfer circuit, and its proof sizes and proving costs are not those reported below. Rand proves one relation: a shielded transfer. General verifiable execution on Solana is left to future work and should not be inferred from this specification.
+\end{remark}
 
 \subsection{Performance Characteristics}
 
@@ -639,95 +645,28 @@ Bitwise operations & Slow (10-50/bit) & High & Binary decomposition \\ \bottomru
 
 \subsection{End-to-End Proving Timeline}
 
-For a typical private transfer (2 inputs, 2 outputs):
+For a two-input, two-output shielded transfer, proven client-side:
 
 \begin{table}[H]
 \centering
-\caption{Proving Timeline on RTX 4090}
-\begin{tabular}{@{}lcc@{}}
+\caption{Client-Side Proving, Commodity CPU}
+\begin{tabular}{@{}lc@{}}
 \toprule
-\textbf{Operation} & \textbf{Time} & \textbf{GPU Utilization} \\ \midrule
-Circuit setup (one-time) & 50 ms & 5\% \\
-Witness generation & 10 ms & 10\% \\
-Trace generation & 200 ms & 40\% \\
-Trace commitment (Merkle tree) & 100 ms & 60\% \\
-Constraint polynomial computation & 500 ms & 80\% \\
-FRI commitment layers & 1,500 ms & 95\% \\
-Query proof generation & 300 ms & 70\% \\
-Proof serialization & 40 ms & 5\% \\ \midrule
-\textbf{Total Proving Time} & \textbf{2.7 seconds} & \\
-\textbf{Proof Size} & \textbf{$\sim$120 KB} & \\
-\textbf{Verification (validators)} & \textbf{3 ms} & \\ \bottomrule
+\textbf{Stage} & \textbf{Time} \\ \midrule
+Witness generation & 60 ms \\
+Poseidon Merkle path constraints ($2 \times 32$) & 400 ms \\
+Constraint solving & 300 ms \\
+Multi-scalar multiplication (BN254) & 1{,}600 ms \\
+Serialisation & 5 ms \\ \midrule
+\textbf{Total proving time} & \textbf{$\sim$2.4 seconds} \\
+\textbf{Proof size} & \textbf{256 bytes} \\
+\textbf{On-chain verification} & \textbf{3 pairings} \\ \bottomrule
 \end{tabular}
 \end{table}
 
-%==============================================================================
-\section{Network Architecture}
-\label{sec:network}
-%==============================================================================
-
-\subsection{Maximum Block Size and Packet Specifications}
-
-\begin{definition}[Block Size Limits]
-\begin{align}
-\text{MAX\_BLOCK\_SIZE} &= 2 \text{ MB} = 2{,}097{,}152 \text{ bytes} \\
-\text{MAX\_PUBLIC\_TX\_PER\_BLOCK} &= 5{,}000 \\
-\text{MAX\_PRIVATE\_TX\_PER\_BLOCK} &= 100 \\
-\text{TARGET\_BLOCK\_TIME} &= 2 \text{ seconds}
-\end{align}
-\end{definition}
-
-\subsection{Gossip Protocol Packet Structure}
-
-\begin{lstlisting}[caption=Gossip Packet Structure]
-pub struct GossipPacket {
-    pub magic: [u8; 4],              // Protocol identifier: "RAND"
-    pub version: u8,                  // Protocol version
-    pub message_type: MessageType,    // Tx, Vote, Proof, Block, etc.
-    pub compression: CompressionType, // None, LZ4, Zstd
-    pub payload_size: u32,            // Uncompressed size
-    pub payload: Vec<u8>,             // Actual data
-    pub checksum: [u8; 32],           // BLAKE3 hash
-}
-
-pub const MIN_PACKET_SIZE: usize = 64;        // Minimum valid packet
-pub const MAX_PACKET_SIZE: usize = 262_144;   // 256 KB unchunked
-pub const MAX_CHUNKED_MSG: usize = 2_097_152; // 2 MB for full blocks
-\end{lstlisting}
-
-\subsection{Performance Metrics}
-
-\begin{table}[H]
-\centering
-\caption{System Performance Targets}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Component} & \textbf{Latency} & \textbf{Throughput} \\ \midrule
-\multicolumn{3}{c}{\textit{Public Transaction}} \\
-Signature verification & 0.1 ms & 10,000/sec per core \\
-Mempool propagation & 50-200 ms & Network bound \\
-SVM execution & 0.04 ms & 25,000/sec per core \\
-Block inclusion & 2 seconds & 5,000/block \\
-\midrule
-\multicolumn{3}{c}{\textit{Private Transaction}} \\
-ZK proof generation & 3-5 seconds & 20,000 proofs/day/GPU \\
-Proof verification & 2-5 ms & 200-500/sec per core \\
-Block inclusion & 2 seconds & 100/block \\
-\midrule
-\multicolumn{3}{c}{\textit{Consensus}} \\
-BFT round trip & $\sim$500 ms & 1 round \\
-Total finality & 2-6 seconds & 3 rounds \\
-Block propagation & 50-200 ms & 2 MB/block \\ \bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Bandwidth Requirements}
-
-\begin{itemize}
-    \item \textbf{Validator Node:} 1 MB/s sustained (8 Mbps), $\sim$86 GB/day
-    \item \textbf{GPU Prover:} 500 KB/s upload, $\sim$10 GB/day
-    \item \textbf{Light Client:} 10 KB/s (block headers only), $\sim$860 MB/day
-\end{itemize}
+\begin{remark}
+These are design targets derived from published Groth16 benchmarks for circuits of comparable constraint count, not measurements of an implementation. They are stated to establish feasibility of client-side proving, which is the architecturally load-bearing claim: at seconds on a laptop, no proving network is required, and the protocol therefore needs no reward mechanism for provers. Should measurement place proving in the tens of seconds, mobile clients would need to delegate proving, which reintroduces a metadata leak to the delegate and would require revisiting Section \ref{sec:discovery}.
+\end{remark}
 
 %==============================================================================
 \section{Token Economics}
@@ -738,115 +677,125 @@ Block propagation & 50-200 ms & 2 MB/block \\ \bottomrule
 
 \begin{table}[H]
 \centering
-\caption{Initial Token Distribution}
-\begin{tabular}{@{}lcc@{}}
+\caption{Initial SHRUGG Distribution}
+\begin{tabular}{@{}lc@{}}
 \toprule
-\textbf{Allocation} & \textbf{ATLAS (\%)} & \textbf{SHRUG (\%)} \\ \midrule
-Core Development Team & 15 & 15 \\
-Foundation/Treasury & 20 & 20 \\
-Ecosystem Development & 15 & 15 \\
-Early Validators/Provers & 5 & 10 \\
-Private Sale & 10 & 5 \\
-Public Sale & 10 & 10 \\
-Community Airdrops & 5 & 5 \\
-Staking Rewards Reserve & 20 & 20 \\ \midrule
-\textbf{Total Initial Supply} & \textbf{500M ATLAS} & \textbf{200M SHRUG} \\ \bottomrule
+\textbf{Allocation} & \textbf{SHRUGG (\%)} \\ \midrule
+Core Development Team & 15 \\
+Foundation/Treasury & 20 \\
+Ecosystem Development & 20 \\
+Early Relayers & 10 \\
+Private Sale & 5 \\
+Public Sale & 10 \\
+Community Airdrops & 5 \\
+Liquidity Reserve & 15 \\ \midrule
+\textbf{Total Initial Supply} & \textbf{200M SHRUGG} \\ \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Inflation Model}
+There is no staking rewards reserve, because Rand has nothing to stake: security is purchased from Solana's validator set, paid for in SOL fees at the moment of use rather than through inflation. This is a structural economic consequence of building on Solana, and it means SHRUGG's value derives from demand for confidential transfers rather than from a yield.
 
-\begin{definition}[Inflation Schedule]
-The annual inflation rate $\iota(t)$ at year $t$ follows:
+\subsection{Emission}
+
+\begin{definition}[Emission Schedule]
+Emission decays geometrically toward a floor, evaluated on Solana slot height:
 \begin{equation}
-\iota(t) = \max\{\iota_\infty, \iota_0 \cdot (1-\delta)^t\}
+\iota(y) = \max\{\iota_\infty, \iota_0 \cdot (1-\delta)^y\}
 \end{equation}
-where $\iota_0$ is initial inflation, $\delta$ is annual reduction rate, and $\iota_\infty$ is long-term inflation.
+with $\iota_0 = 6\%$, $\delta = 15\%$ per year, and $\iota_\infty = 1\%$.
 \end{definition}
 
-\textbf{ATLAS Inflation Parameters:}
-\begin{itemize}
-    \item Initial inflation ($\iota_0$): 8\% annually
-    \item Reduction rate ($\delta$): 15\% per year
-    \item Long-term inflation ($\iota_\infty$): 1.5\% annually
-    \item Target staking rate: 65\% of circulating supply
-\end{itemize}
-
-\subsection{SHRUG Demand-Driven Emission}
-
-\begin{equation}
-\text{Emission}_{\text{SHRUG}}(e) = \text{Base\_Emission}(e) \cdot \min\left(2, 1 + \frac{\text{Proofs}(e) - \text{Target\_Proofs}}{\text{Target\_Proofs}}\right)
-\end{equation}
+As noted in Section \ref{sec:supply}, emission is deliberately independent of shielded activity. A usage-responsive schedule would leak aggregate private volume through the supply curve.
 
 \subsection{Fee Distribution}
 
+Each shielded operation carries an in-circuit SHRUGG fee, split as follows.
+
 \begin{table}[H]
 \centering
-\caption{Fee Distribution by Transaction Type}
-\begin{tabular}{@{}lcccc@{}}
+\caption{Shielded Operation Fee Distribution}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Fee Type} & \textbf{Proposer} & \textbf{Voters} & \textbf{Treasury} & \textbf{Burn} \\ \midrule
-Public tx gas (ATLAS) & 60\% & 20\% & 10\% & 10\% \\
-Private tx base (SHRUG) & 40\% & -- & 30\% & 10\% \\
-Proving fee (SHRUG) & 80\%* & -- & 20\% & -- \\ \bottomrule
+\textbf{Component} & \textbf{Share} & \textbf{Rationale} \\ \midrule
+Relayer & 70\% & must cover SOL base and priority fees \\
+Treasury & 20\% & protocol development, ceremony upkeep \\
+Burn & 10\% & ties supply to usage \\ \bottomrule
 \end{tabular}
-
-\footnotesize{*Goes to prover, not proposer}
 \end{table}
+
+The relayer share floats with SOL's price and with network congestion: relayers decline operations whose fee fails to cover their costs, so the effective floor is set by the market rather than by protocol constant. Users observe prevailing relayer fees before constructing a transfer.
 
 %==============================================================================
 \section{Security Analysis}
 \label{sec:security}
 %==============================================================================
 
-\subsection{Consensus Security}
+\subsection{Inherited Consensus Security}
 
-\begin{theorem}[Safety]
-If fewer than $f < n/3$ validators are Byzantine, no two honest validators commit to conflicting blocks.
-\end{theorem}
+Rand proves no consensus properties of its own. Safety and liveness of ordering are Solana's, and Rand's guarantees are conditional on them.
+
+\begin{proposition}[Conditional Safety]
+Assume Solana's consensus provides finality: a finalised transaction is never reordered or reverted. Then no note in the Rand pool can be spent twice.
+\end{proposition}
 
 \begin{proof}
-The HotStuff protocol requires $2f + 1$ signatures for each QC. For two conflicting blocks $B$ and $B'$ to both receive commitQCs:
-\begin{align}
-|S_B| &\geq 2f + 1 \\
-|S_{B'}| &\geq 2f + 1
-\end{align}
-Since honest validators sign at most one block per view:
-\begin{equation}
-|S_B \cap S_{B'}| \geq (2f + 1) + (2f + 1) - n = 4f + 2 - (3f + 1) = f + 1
-\end{equation}
-This implies at least $f + 1$ validators signed both, contradicting the assumption that at most $f$ are Byzantine.
+Each note yields a unique nullifier $\mathsf{nf} = \mathsf{Poseidon}(\mathsf{nk} \| \rho)$, and the circuit enforces its correct derivation. On the first spend, the pool program creates the account seeded by $\mathsf{nf}$; account creation fails if the account exists. A second spend of the same note produces the same nullifier and therefore attempts to create an existing account, which the runtime rejects. Both spends are ordered by assumption, so exactly one precedes the other and exactly one succeeds.
 \end{proof}
 
-\begin{theorem}[Liveness]
-Under partial synchrony, if fewer than $f$ validators are Byzantine and the network eventually becomes synchronous, the protocol makes progress.
-\end{theorem}
-
-\subsection{Privacy Security}
+\begin{remark}[Where the assumption binds]
+The proof depends entirely on finality. Were finalised Solana history reorganised, nullifier creations could be reordered or dropped and a double-spend would become possible. Rand cannot defend against this, and we do not claim otherwise: its security is upper-bounded by that of the chain it is deployed on. This is the price of not running a validator set, and it is the central tradeoff of the architecture.
+\end{remark}\subsection{Privacy Security}
 
 \begin{theorem}[Transaction Privacy]
-Under the security of the hash function $H$ and the STARK proof system, private transactions reveal only the public inputs (nullifiers, commitments, Merkle root) and nothing about the sender, recipient, or amount.
+Under the collision resistance of Poseidon and the zero-knowledge property of Groth16, a shielded transfer reveals nothing beyond its public inputs: the tree root, the nullifiers, the output commitments, the asset identifier, and the fee.
 \end{theorem}
+
+\begin{remark}[What the theorem does not cover]
+Cryptographic privacy of the transfer does not imply unobservability of the user. Three leaks lie outside the proof system and are not addressed by it. The asset identifier and fee are public, so transfers are distinguishable by asset and, to a degree, by fee. A relayer learns the network origin of a submission, which requires an anonymising transport to mitigate. And the anonymity set is only as large as the pool is active: a transfer within a pool of few participants is formally private and practically identifiable. Section \ref{sec:discovery} records a further leak in the discovery mechanism. We enumerate these because a privacy system whose stated guarantees exceed its real ones is worse than one with modest, accurate claims.
+\end{remark}
 
 \begin{theorem}[Double-Spend Prevention]
 A valid transaction cannot spend the same note twice.
 \end{theorem}
 
 \begin{proof}
-Each note has a unique nullifier $\text{nf} = H(\text{sk} \| \rho)$. The circuit enforces correct nullifier computation. Validators maintain a nullifier set $\mathcal{N}$ and reject transactions with $\text{nf} \in \mathcal{N}$. After inclusion, $\text{nf}$ is added to $\mathcal{N}$. Any re-spend produces the same nullifier, which is rejected.
+See the proof of Conditional Safety above; the mechanism is nullifier account creation, and the argument is identical.
 \end{proof}
 
 \subsection{Post-Quantum Security}
 
-\begin{proposition}
-The system maintains security against quantum adversaries using:
-\begin{itemize}
-    \item Signatures: CRYSTALS-Dilithium (lattice-based)
-    \item Key encapsulation: CRYSTALS-Kyber (lattice-based)
-    \item ZK proofs: STARKs (hash-based)
-    \item Hash functions: SHA-3, BLAKE3 (128-bit quantum security via Grover bound)
-\end{itemize}
+\label{sec:pqposture}
+
+Rand's post-quantum posture is deliberately asymmetric, and since this departs from the usual "post-quantum throughout" claim we set out the reasoning rather than the conclusion alone.
+
+The distinction is between properties that are permanently exposed once published and properties re-established at each use.
+
+\begin{table}[H]
+\centering
+\caption{Post-Quantum Posture by Property}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Property} & \textbf{Primitive} & \textbf{PQ} & \textbf{Exposure} \\ \midrule
+Note confidentiality & ML-KEM & yes & permanent, on-ledger \\
+Commitment hiding & Poseidon & yes & permanent, on-ledger \\
+Spend authorisation & ML-DSA & yes & permanent, on-ledger \\
+Proof soundness & Groth16/BN254 & \textbf{no} & live, per-verification \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{proposition}[Asymmetry of Quantum Exposure]
+Confidentiality of published ciphertexts must be post-quantum from first use, whereas soundness of an upgradeable verifier need not be.
 \end{proposition}
+
+\begin{proof}
+A ciphertext published at time $t_0$ is recorded permanently by any observer. If its security rests on an assumption broken at some later $t_1$, the plaintext is recoverable at $t_1$; no action taken during $(t_0, t_1)$ can prevent this, since the ciphertext cannot be unpublished. Confidentiality is therefore irrevocable and must anticipate the strongest future adversary. Soundness is different: it is enforced by a verifier executed afresh at each verification. Replacing that verifier before $t_1$ preserves soundness for all subsequent proofs, and proofs verified before $t_1$ were checked under an assumption then unbroken. Since Solana programs are upgradeable, the verifier can be replaced.
+\end{proof}
+
+We therefore accept a classically-sound argument system in exchange for single-transaction verification, and reject any compromise on confidentiality. The concrete migration trigger is the availability of a succinct post-quantum argument whose proofs fit a Solana transaction and whose verification fits the compute budget; lattice-based and hash-based succinct arguments are both plausible candidates, and neither is practical at the time of writing.
+
+\begin{remark}[Honest statement of the limitation]
+Rand should not be described as an end-to-end post-quantum system. An adversary with a sufficiently capable quantum computer, acting before the verifier is upgraded, could forge a proof and mint value from the pool. Such an adversary could not, however, decrypt historical notes or deanonymise past transfers. This is a considered position, not an oversight, and we prefer to state it than to let the stronger claim stand unqualified.
+\end{remark}
 
 %==============================================================================
 \section{Implementation Considerations}
@@ -871,36 +820,47 @@ All core components are implemented in Rust, leveraging:
 \begin{tabular}{@{}ll@{}}
 \toprule
 \textbf{Metric} & \textbf{Target} \\ \midrule
-Block time & 2 seconds \\
-Finality time & 2-6 seconds \\
-Public TPS & 5,000-10,000 \\
-Private TPS & 100-500 (proof-limited) \\
-Active validators & 50-100 \\
-Proof verification & $<$5 ms \\ \bottomrule
+Client proving time & $<$3 seconds, commodity CPU \\
+Proof size & 256 bytes \\
+Transactions per shielded transfer & 1 \\
+Settlement latency & Solana finality \\
+Commitment tree depth & 32 ($4.3 \times 10^9$ notes) \\
+Recent-root window & 64 \\
+Supported assets & native USDC, USDT, SOL \\ \bottomrule
 \end{tabular}
 \end{table}
+
+Throughput is not a Rand parameter. Shielded transfers occupy ordinary Solana transactions and compete for block space on equal terms, so the ceiling is Solana's and varies with network conditions.
 
 %==============================================================================
 \section{Related Work}
 \label{sec:related}
 %==============================================================================
 
-\textbf{Consensus Mechanisms.} Bitcoin \cite{Nakamoto2008} introduced Nakamoto consensus with probabilistic finality. Ethereum 2.0 combines PoS with Casper FFG for finality. Tendermint \cite{Buchman2016} and HotStuff \cite{Yin2019} provide BFT consensus with deterministic finality. Our work combines these approaches with useful work.
+\textbf{Privacy-Preserving Layer 1s.} Zcash \cite{Hopwood2016} established the note, commitment, and nullifier model on which Rand's circuit is based, and Monero \cite{Noether2015} achieves comparable goals with ring signatures and stealth addresses. Both are independent networks with their own assets and security budgets. Rand adopts Zcash's cryptographic structure while rejecting its deployment model: the anonymity is useful, but requiring users to leave Solana and its native stablecoins is precisely the cost we are unwilling to pay.
 
-\textbf{Privacy Cryptocurrencies.} Zcash \cite{Hopwood2016} pioneered zk-SNARK-based privacy. Monero \cite{Noether2015} uses ring signatures and stealth addresses. Aztec Protocol \cite{Williamson2018} brings privacy to Ethereum. Our approach differs in using STARKs for post-quantum security.
+\textbf{Confidential Transfers on Solana.} Token-2022's confidential transfer extension \cite{SolanaToken2022} encrypts balances using twisted ElGamal with proofs verified by a native program. It hides amounts but not participants, and cannot be enabled on the already-deployed native USDC and USDT mints. It is complementary rather than competing: where amount confidentiality suffices and the mint is under one's control, it is the simpler choice.
 
-\textbf{Proof-of-Useful-Work.} Prior PoUW proposals include Primecoin \cite{King2013} and AI-PoW systems \cite{Lihu2020}. Our approach uniquely ties useful work to the system's core functionality (privacy proofs).
+\textbf{Zero-Knowledge Infrastructure on Solana.} Light Protocol \cite{LightProtocol} demonstrated Groth16 verification on Solana via the \texttt{alt\_bn128} syscalls, establishing the feasibility on which Rand's verification design rests. Its ZK compression targets state cost rather than privacy, but the verification path is shared.
+
+\textbf{Confidential Computation Networks.} Arcium \cite{Arcium} provides confidential computation for Solana through multi-party computation. The trust assumption differs fundamentally: MPC requires a threshold of non-colluding nodes, whereas Rand's confidentiality is cryptographic and requires trust in no operator. MPC in exchange supports richer computation than a fixed transfer circuit.
+
+\textbf{Note Discovery.} Fuzzy message detection \cite{Beck2021} and oblivious message retrieval \cite{Liu2022} address the problem of Section \ref{sec:discovery}; Penumbra deploys the former. Rand's initial reliance on trial decryption is a known weakness rather than a contribution.
+
+\textbf{Proof-of-Useful-Work.} Earlier versions of this work positioned Rand as a proof-of-useful-work consensus protocol, in the lineage of Primecoin \cite{King2013}. That framing has been abandoned. Once consensus is inherited from Solana there is no work to reward, and the observation that proof generation is cheap enough to perform client-side removes the remaining justification for a proving market.
 
 %==============================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 %==============================================================================
 
-We have presented Rand, a blockchain architecture that achieves the seemingly contradictory goals of fast finality and permissionless participation through a novel hybrid consensus mechanism. By transforming ZK proof generation into useful work, we create a permissionless entry point (GPU proving) while maintaining BFT consensus efficiency.
+We have presented Rand, a privacy layer for Solana rather than a blockchain. The central claim is architectural: transaction privacy does not require a new chain, and building one imposes costs, in bridged assets, fragmented liquidity, and a separate security budget, that a program deployed onto an existing chain avoids entirely. Rand's shielded pool operates over the native USDC and USDT already circulating on Solana, and inherits its ordering, finality, and throughput.
 
-The dual-token model aligns incentives: validators secure consensus and earn ATLAS, while GPU provers enable privacy and earn SHRUG. The integration with SVM provides smart contract functionality and ecosystem compatibility.
+Two results structure the design. Transparent fee payment deanonymises a shielded operation regardless of proof strength, which makes an in-circuit fee token and a relayer market structural requirements rather than economic choices; this is what SHRUGG is for. And quantum exposure is asymmetric between confidentiality and soundness, which justifies post-quantum note encryption alongside a classically-sound, upgradeable verifier. Both conclusions were reached by following platform constraints, particularly Solana's 1232-byte transaction limit, rather than by preference.
 
-Future work includes formal verification of the implementation, optimization of the STARK proving system for specific GPU architectures, and exploration of recursive proof composition for enhanced scalability.
+We are explicit about what remains unresolved. Note discovery has no satisfying solution, and trial decryption will not serve constrained clients. The compute budget for combined verification and tree update requires measurement against the live runtime. The anonymity set must reach meaningful size before formal privacy becomes practical privacy. And Rand's safety is bounded above by Solana's, which is the considered price of not operating a validator set.
+
+Future work includes the trusted setup ceremony, formal verification of the circuit, migration to fuzzy message detection, and monitoring for a succinct post-quantum argument system whose verification fits a Solana transaction, which would close the last gap in the post-quantum posture.
 
 \section*{Acknowledgments}
 
@@ -918,17 +878,11 @@ G. Bertoni, J. Daemen, M. Peeters, and G. Van Assche, ``Keccak,'' in \textit{EUR
 \bibitem{Bos2018}
 J. Bos et al., ``CRYSTALS-Kyber: A CCA-secure module-lattice-based KEM,'' in \textit{Euro S\&P}, 2018.
 
-\bibitem{Buchman2016}
-E. Buchman, ``Tendermint: Byzantine fault tolerance in the age of blockchains,'' PhD thesis, 2016.
 
-\bibitem{Buterin2017}
-V. Buterin, ``On sharding blockchains,'' Ethereum Foundation, 2017.
 
 \bibitem{Ducas2018}
 L. Ducas et al., ``CRYSTALS-Dilithium: A lattice-based digital signature scheme,'' \textit{TCHES}, 2018.
 
-\bibitem{Gilad2017}
-Y. Gilad et al., ``Algorand: Scaling byzantine agreements for cryptocurrencies,'' in \textit{SOSP}, 2017.
 
 \bibitem{Grover1996}
 L. K. Grover, ``A fast quantum mechanical algorithm for database search,'' in \textit{STOC}, 1996.
@@ -936,20 +890,12 @@ L. K. Grover, ``A fast quantum mechanical algorithm for database search,'' in \t
 \bibitem{Hopwood2016}
 D. Hopwood et al., ``Zcash protocol specification,'' 2016.
 
-\bibitem{Kiayias2017}
-A. Kiayias et al., ``Ouroboros: A provably secure proof-of-stake blockchain protocol,'' in \textit{CRYPTO}, 2017.
 
 \bibitem{King2013}
 S. King, ``Primecoin: Cryptocurrency with prime number proof-of-work,'' 2013.
 
-\bibitem{Lamport1982}
-L. Lamport, R. Shostak, and M. Pease, ``The Byzantine generals problem,'' \textit{TOPLAS}, 1982.
 
-\bibitem{Lihu2020}
-A. Lihu, J. Du, and S. Barber, ``A proof of useful work for AI on the blockchain,'' 2020.
 
-\bibitem{Nakamoto2008}
-S. Nakamoto, ``Bitcoin: A peer-to-peer electronic cash system,'' 2008.
 
 \bibitem{Noether2015}
 S. Noether, ``Ring signature confidential transactions for Monero,'' \textit{IACR ePrint}, 2015.
@@ -957,14 +903,37 @@ S. Noether, ``Ring signature confidential transactions for Monero,'' \textit{IAC
 \bibitem{OConnor2020}
 J. O'Connor et al., ``BLAKE3: One function, fast everywhere,'' 2020.
 
-\bibitem{Williamson2018}
-Z. J. Williamson, ``The Aztec protocol,'' 2018.
+\bibitem{Groth2016}
+J. Groth, ``On the size of pairing-based non-interactive arguments,'' in \textit{EUROCRYPT}, 2016.
+
+\bibitem{Grassi2021}
+L. Grassi, D. Khovratovich, C. Rechberger, A. Roy, and M. Schofnegger, ``Poseidon: A new hash function for zero-knowledge proof systems,'' in \textit{USENIX Security}, 2021.
+
+\bibitem{Beck2021}
+G. Beck, J. Len, I. Miers, and M. Green, ``Fuzzy message detection,'' in \textit{ACM CCS}, 2021.
+
+\bibitem{Liu2022}
+Z. Liu and E. Tromer, ``Oblivious message retrieval,'' in \textit{CRYPTO}, 2022.
+
+\bibitem{SolanaAltBn128}
+Solana Foundation, ``\texttt{alt\_bn128} syscalls,'' Solana documentation.
+
+\bibitem{SolanaToken2022}
+Solana Foundation, ``Token-2022 confidential transfer extension,'' Solana Program Library documentation.
+
+\bibitem{LightProtocol}
+Light Protocol, ``ZK compression on Solana,'' technical documentation.
+
+\bibitem{Arcium}
+Arcium, ``Confidential computing network for Solana,'' technical documentation.
+
+\bibitem{zUSDTPaper}
+D. Suhubdy, ``zUSDT: A fully-reserved shielded representation of USDT on Solana,'' Bitwyre Research, 2025.
+
 
 \bibitem{Yakovenko2018}
 A. Yakovenko, ``Solana: A new architecture for a high performance blockchain,'' 2018.
 
-\bibitem{Yin2019}
-M. Yin et al., ``HotStuff: BFT consensus with linearity and responsiveness,'' in \textit{PODC}, 2019.
 
 \end{thebibliography}
 

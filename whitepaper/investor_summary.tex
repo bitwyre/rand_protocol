@@ -47,19 +47,21 @@ Bitwyre Research\\
 \section{Executive Summary}
 %==============================================================================
 
-\textbf{Rand is a next-generation blockchain solving three critical problems:}
+\textbf{Rand is a privacy layer for Solana --- not a new blockchain.}
+
+Solana settles more stablecoin volume than any other high-performance chain, and native USDT and USDC are issued directly on it. Everything is also completely public: every balance, every counterparty, every amount. That rules Solana out for payroll, treasury operations, supplier payments, and trading --- any activity a business cannot publish.
+
+Rand fixes exactly that, and nothing else:
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{The Speed-Decentralization Tradeoff:} Traditional blockchains are either fast but centralized, or decentralized but slow. Rand achieves both: 2-6 second finality with permissionless participation.
-    
-    \item \textbf{The Privacy Problem:} Most blockchains are completely transparent. Rand enables truly private transactions that are impossible to trace while maintaining security.
-    
-    \item \textbf{The Wasted Energy Problem:} Bitcoin mining consumes more electricity than Argentina solving useless puzzles. Rand's ``miners'' generate cryptographic proofs that secure privacy features---useful work, not waste.
+    \item \textbf{Private transfers of the stablecoins people already hold.} Deposit native USDT, transact confidentially, withdraw. No bridge, no wrapped assets, no new chain to bootstrap.
+    \item \textbf{Deployed as Solana programs.} We inherit Solana's speed, finality, liquidity, and validator set instead of rebuilding them. No validators to recruit, no security budget to fund, no chicken-and-egg liquidity problem.
+    \item \textbf{Post-quantum confidentiality.} Encrypted transfer data on a public ledger is permanently exposed to future quantum decryption. Rand encrypts with the NIST post-quantum standards from day one.
 \end{enumerate}
 
 \begin{center}
-\fbox{\parbox{0.8\textwidth}{
-\textbf{Market Opportunity:} \$2.5T+ cryptocurrency market, growing 40\% annually, with privacy and enterprise adoption as key growth drivers.
+\fbox{\parbox{0.9\textwidth}{
+\textbf{Why this is the right structure:} a privacy Layer 1 must attract its own liquidity, its own validators, and its own stablecoin issuers before it is useful. Rand starts with all three, because they are already on Solana.
 }}
 \end{center}
 
@@ -67,188 +69,177 @@ Bitwyre Research\\
 \section{The Problem}
 %==============================================================================
 
-\subsection{Problem 1: The Blockchain Trilemma}
+\subsection{Problem 1: Solana Has No Privacy}
 
-Every blockchain faces a fundamental challenge---you can only pick 2 of 3:
-\begin{itemize}
-    \item Decentralization
-    \item Security  
-    \item Scalability
-\end{itemize}
+Imagine if every bank transfer your company made was permanently visible to competitors, suppliers, and employees. That is Solana today. Balances, counterparties, and amounts are public by default.
 
-\textbf{Examples:}
+Existing options all fail for a business holding USDT on Solana:
+
 \begin{itemize}[leftmargin=*]
-    \item \textbf{Bitcoin:} Decentralized + Secure, but \textbf{SLOW} (7 transactions/second)
-    \item \textbf{Visa:} Fast + Secure, but \textbf{CENTRALIZED}
-    \item \textbf{Many ``fast'' blockchains:} Fast + Decentralized, but \textbf{INSECURE}
+    \item \textbf{Zcash, Monero:} strong privacy, but separate networks. Your USDT is not there, and getting it there means bridging.
+    \item \textbf{Token-2022 confidential transfers:} hides amounts but not who pays whom --- and cannot be enabled on the existing USDT and USDC mints, because the feature must be set when a token is created.
+    \item \textbf{Privacy rollups:} own gas token and own liquidity, so assets must be bridged and liquidity fragmented.
 \end{itemize}
 
-\subsection{Problem 2: No Privacy}
+\subsection{Problem 2: Privacy Solutions Force You Off-Chain}
 
-Imagine if every bank transaction was visible to everyone on the internet, forever. This is how Bitcoin, Ethereum, and most blockchains work. For businesses and privacy-conscious individuals, this is unacceptable.
+Every option above asks a business to move assets somewhere else. Bridges are the single largest category of loss in crypto history --- Ronin \$624M, Poly \$611M, BNB Bridge \$570M, Wormhole \$325M. Asking a treasurer to bridge their stablecoins to obtain privacy is asking them to accept a worse risk than the one they are solving.
 
-\subsection{Problem 3: Wasted Energy}
+\subsection{Problem 3: Tomorrow's Quantum Computers Read Today's Ledger}
 
-Bitcoin mining uses \textbf{150 Terawatt-hours per year}---more than Argentina---solving useless puzzles that produce nothing of value.
+Encrypted data published to a blockchain stays there permanently. An adversary can record it now and decrypt it once quantum computers mature --- "harvest now, decrypt later." Privacy systems using conventional encryption are therefore not private in the long run; they are merely delayed.
 
 %==============================================================================
 \section{Rand's Solution}
 %==============================================================================
 
-Think of Rand as having three specialized teams:
+Rand adds three Solana programs and one off-chain role. That is the whole system.
 
-\subsection{The Validators (Earn ATLAS tokens)}
+\subsection{The Shielded Pool}
 
-\textbf{What they do:} Like a board of directors voting on transaction legitimacy.
+\textbf{What it does:} holds deposited USDT, USDC, and SOL, and tracks who owns what without revealing it.
+
+Deposits are visible. Once inside, transfers are not: sender, recipient, and amount are hidden behind a zero-knowledge proof. Withdrawals are visible again. All assets are the real, native tokens throughout --- never a wrapped derivative.
+
+\subsection{The Relayers (Earn SHRUGG)}
+
+\textbf{What they do:} submit your private transaction and pay the Solana network fee on your behalf.
+
+This role exists for a precise reason. Solana charges fees in SOL, and every transaction names who paid. If you pay your own fee, you have signed your name to your "private" transfer and defeated the entire system. So somebody else must submit it --- and be paid without creating a second trail. That payment is SHRUGG, deducted inside the zero-knowledge proof.
 
 \begin{itemize}[leftmargin=*]
-    \item \textbf{Number:} 50-100 validators
-    \item \textbf{Requirement:} Stake 100,000 ATLAS tokens (around \$100,000)
-    \item \textbf{Speed:} Reach agreement in 2-6 seconds
-    \item \textbf{Payment:} Earn ATLAS tokens as rewards
+    \item \textbf{Requirement:} an account with SOL. No stake, no permission, no special hardware.
+    \item \textbf{Payment:} SHRUGG, from every transfer they submit
+    \item \textbf{Competition:} relayers are interchangeable and cannot alter what they submit --- only submit it or decline
 \end{itemize}
 
-\subsection{The GPU Provers (Earn SHRUG tokens)}
+\textbf{Why SHRUGG has durable demand:} it is not a reward paid out of inflation. Every confidential transfer must buy it to pay a relayer, so demand scales with usage rather than with emissions.
 
-\textbf{What they do:} Generate mathematical proofs that transactions are valid without revealing details.
+\subsection{Solana Itself}
+
+\textbf{What it provides:} ordering, finality, security, and liquidity --- for free, from our perspective.
+
+Solana validators run unmodified Agave or Firedancer and need not know Rand exists. We are a program on their chain, not a competitor for their stake.
 
 \begin{itemize}[leftmargin=*]
-    \item \textbf{Requirement:} Just a gaming GPU (RTX 3090, 4090) - NO stake required
-    \item \textbf{Speed:} 3-10 seconds per proof
-    \item \textbf{Capacity:} Single RTX 4090 processes 20,000 proofs per day
-    \item \textbf{Payment:} Earn SHRUG tokens for each proof
-\end{itemize}
-
-\textbf{Why this is special:} Anyone with a gaming GPU can earn tokens---true permissionless participation.
-
-\subsection{The Solana Virtual Machine (SVM)}
-
-\textbf{What it is:} The ``computer'' running applications on the blockchain.
-
-\textbf{Why Solana's VM?}
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Speed:} 5,000-65,000 transactions per second
-    \item \textbf{Compatibility:} Existing Solana apps deploy directly
-    \item \textbf{Ecosystem:} Access to \$10B+ Solana DeFi
+    \item \textbf{Speed:} Solana's, not a number we have to prove
+    \item \textbf{Security:} secured by the full value staked on Solana
+    \item \textbf{Assets:} native USDT and USDC, already there
 \end{itemize}
 
 %==============================================================================
 \section{Two Transaction Types}
 %==============================================================================
 
-\subsection{Public Transactions}
+\subsection{Transparent (ordinary Solana)}
 
 \begin{tabular}{@{}ll@{}}
-Speed: & Near-instant (2 seconds) \\
-Cost: & Fraction of a cent \\
-Privacy: & None---fully transparent \\
-Throughput: & 5,000+ per second \\
+Speed: & Solana's \\
+Cost: & fraction of a cent, in SOL \\
+Privacy: & none \\
 \end{tabular}
 
-\subsection{Private Transactions}
+\subsection{Shielded (through Rand)}
 
 \begin{tabular}{@{}ll@{}}
-Speed: & 2-6 seconds \\
-Proof generation: & 3-10 seconds \\
-Cost: & \$0.10-1.00 \\
-Privacy: & Complete---sender, recipient, amount all hidden \\
-Throughput: & 100-500 per second \\
+Speed: & Solana's, plus a few seconds to build the proof \\
+Proof generation: & 2--4 seconds, on the user's own laptop \\
+Cost: & SOL network fee (paid by relayer) + SHRUGG fee \\
+Privacy: & sender, recipient, and amount hidden \\
 \end{tabular}
 
-\textbf{How privacy works:} A ``magic box'' (zero-knowledge proof) proves a transaction is valid without revealing any details. Even validators can't see the transaction contents.
+\textbf{How it works:} a zero-knowledge proof demonstrates that a transfer is valid --- the sender owned the funds, nothing was created from nothing --- without revealing who, whom, or how much. Solana validators verify the proof without learning its contents.
+
+\textbf{Note:} users generate their own proofs. There is no proving network to pay for, and no GPU required.
 
 %==============================================================================
-\section{The Dual-Token Economy}
+\section{A Single Token}
 %==============================================================================
 
-\subsection{ATLAS - The Governance \& Gas Token}
+Rand has one token. Earlier designs had two --- ATLAS for staking and gas, SHRUGG for privacy --- but once Solana provides consensus there is no validator set for a staking token to secure and no separate gas to price. \textbf{SOL fills that role, so ATLAS was removed.}
+
+\subsection{SHRUGG --- The Confidential Transfer Token}
 
 \textbf{Purpose:}
 \begin{itemize}[leftmargin=*]
-    \item Pay for public transactions
-    \item Stake to become a validator
-    \item Vote on protocol changes
-    \item Back the USDB stablecoin
-\end{itemize}
-
-\textbf{Supply:}
-\begin{itemize}[leftmargin=*]
-    \item Initial: 500 million tokens
-    \item Inflation: 8\% declining to 1.5\%
-\end{itemize}
-
-\subsection{SHRUG - The Privacy Token}
-
-\textbf{Purpose:}
-\begin{itemize}[leftmargin=*]
-    \item Pay for private transactions
-    \item Reward GPU provers
-    \item Back the USDB stablecoin
+    \item Pay relayers to submit confidential transfers
+    \item The only way to pay for privacy without revealing who you are
 \end{itemize}
 
 \textbf{Supply:}
 \begin{itemize}[leftmargin=*]
     \item Initial: 200 million tokens
-    \item Inflation: 5\% adjusting with demand
+    \item Emission: 6\% declining to 1\%, on a fixed published schedule
 \end{itemize}
 
-\subsection{Why Two Tokens?}
+\textbf{Why emission is fixed rather than demand-linked:} tying issuance to shielded activity would let anyone read private transaction volume off the supply curve. We will not build a side channel into monetary policy.
+
+\subsection{Why One Token Is Stronger}
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{Price independence:} Privacy demand doesn't inflate costs for regular users
-    \item \textbf{Targeted incentives:} Different optimization for validators vs provers
-    \item \textbf{Stablecoin diversification:} Two uncorrelated backing assets
+    \item \textbf{No inflation subsidy.} SHRUGG demand comes from users buying it to transact, not from rewards printed to attract validators.
+    \item \textbf{Structural necessity.} Every confidential transfer requires SHRUGG. It is not an optional governance token bolted onto a protocol that works without it.
+    \item \textbf{Nothing to bootstrap.} A staking token needs a validator set, and a validator set needs a token price. We skip that loop entirely.
 \end{enumerate}
 
 %==============================================================================
-\section{USDB: The Stablecoin That Won't Collapse}
+\section{zUSDT: Private Stablecoin, No Peg Risk}
 %==============================================================================
 
-\subsection{The Terra Disaster}
+\subsection{The Terra Lesson}
 
-Terra's UST (May 2022):
+Terra's UST collapsed in May 2022 --- \$60B destroyed, LUNA supply inflated 18{,}500$\times$. The cause was structural: UST's peg was held by a mechanism rather than by reserves, and a mechanism can be attacked.
+
+\subsection{zUSDT's Design: No Mechanism At All}
+
+zUSDT is fully reserved. Every unit is backed by one unit of native USDT held in a Solana program, redeemable on demand.
+
 \begin{itemize}[leftmargin=*]
-    \item Zero hard collateral
-    \item Death spiral: selling caused more printing
-    \item Result: LUNA supply increased 18,500x, \$60B destroyed
+    \item \textbf{Backing:} 100\% native USDT. Not 90\%, not fractional, not partly in our own token.
+    \item \textbf{Reserve location:} the same chain as the token --- no bridge between the two
+    \item \textbf{Verification:} anyone can compare reserves to supply on-chain, continuously
+    \item \textbf{Privacy:} transacts confidentially through the Rand pool
 \end{itemize}
 
-\subsection{USDB's Design}
+\textbf{What it does not have, deliberately:} no collateral ratio to manage, no absorber token to dilute, no redemption rate limits, no monetary policy. A fully-reserved token cannot enter a death spiral, because there is no reflexive loop to spiral.
 
-\textbf{Three-layer backing:}
-\begin{itemize}[leftmargin=*]
-    \item 40-90\% in USDC/DAI (hard collateral)
-    \item 5-30\% in ATLAS tokens
-    \item 5-30\% in SHRUG tokens
-\end{itemize}
+\begin{center}
+\fbox{\parbox{0.9\textwidth}{
+\textbf{We abandoned a more ambitious design to get here.} An earlier proposal, USDB, was fractionally backed with SOL and SHRUGG absorbing volatility, defended by dynamic collateral ratios and rate-limited redemptions. It was a sound design. But every one of those defences exists to manage the possibility of backing falling short --- and full reserving removes that possibility outright. We chose fewer moving parts.
+}}
+\end{center}
 
-\textbf{Key protections:}
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Hard floor:} Even if ATLAS and SHRUG go to zero, redeem for \$0.40-0.90
-    \item \textbf{Diversified backing:} Two tokens share risk
-    \item \textbf{Rate limits:} Max 3\% per hour (prevents bank runs)
-    \item \textbf{Dynamic adjustments:} Auto-increases collateral during stress
-\end{enumerate}
+\subsection{The Risk We Cannot Remove}
 
-\textbf{Conservative launch:} Start 90\% collateralized, gradually reduce over 2 years.
+Tether can freeze USDT balances, and has done so at law-enforcement request. If our reserve were frozen, redemption would halt. No design that wraps a centrally-administered asset can prevent this, and we would rather state it plainly than bury it. zUSDT offers privacy from observers, not from the issuer. Mitigation is to shard the reserve across vaults so a single freeze impairs only part of redemption capacity.
 
 %==============================================================================
 \section{Post-Quantum Security}
 %==============================================================================
 
-Most blockchains use cryptography that quantum computers will break in 5-15 years. Rand uses ``post-quantum'' cryptography---problems even quantum computers can't solve.
+Encrypted data on a public ledger is permanent. An adversary can record it today and decrypt it whenever quantum computers mature. Rand therefore uses the NIST post-quantum standards where it matters most --- for confidentiality.
 
 \begin{table}[h]
 \centering
 \begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{Component} & \textbf{Bitcoin/Ethereum} & \textbf{Rand} & \textbf{Quantum-Safe?} \\ \midrule
-Signatures & ECDSA & Dilithium & Yes \\
-Encryption & ECDH & Kyber & Yes \\
-Privacy proofs & SNARKs & STARKs & Yes \\
-Hashing & SHA-256 & SHA-3, BLAKE3 & Yes \\ \bottomrule
+\textbf{Component} & \textbf{Typical} & \textbf{Rand} & \textbf{Quantum-safe?} \\ \midrule
+Transfer data encryption & ECDH & ML-KEM (Kyber) & \textbf{Yes} \\
+Spend authorisation & ECDSA & ML-DSA (Dilithium) & \textbf{Yes} \\
+Commitments & Pedersen & Poseidon & \textbf{Yes} \\
+Hashing & SHA-256 & SHA-3, BLAKE3 & \textbf{Yes} \\
+Proof verification & --- & Groth16 & \textbf{No --- see below} \\ \bottomrule
 \end{tabular}
 \end{table}
+
+\textbf{We are explicit about the exception.} Verifying proofs on Solana requires pairing arithmetic that is not quantum-safe. This is a deliberate trade, not an oversight, and the reasoning is that the two risks are not symmetric:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Confidentiality cannot be fixed later.} A ciphertext published today is decryptable forever once the maths breaks. So it must be post-quantum now.
+    \item \textbf{Verification can be fixed later.} It is enforced by a program we can upgrade. Replace the verifier before quantum computers arrive and nothing historical is at risk.
+\end{itemize}
+
+Spending the post-quantum budget on the irreversible risk is the correct allocation. The residual exposure is that a quantum adversary, acting before we upgrade, could forge a proof and steal from the pool --- bounded, detectable through reserve auditing, and mitigated by upgrading. They could not decrypt anyone's transaction history. Competitors claiming end-to-end post-quantum security on Solana today are either not verifying proofs on-chain or not being precise.
 
 %==============================================================================
 \section{Market Opportunity}
@@ -268,18 +259,19 @@ Hashing & SHA-256 & SHA-3, BLAKE3 & Yes \\ \bottomrule
 
 \begin{table}[h]
 \centering
-\begin{tabular}{@{}lccccc@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-\textbf{Feature} & \textbf{Bitcoin} & \textbf{Ethereum} & \textbf{Solana} & \textbf{Rand} \\ \midrule
-Finality & 60 min & 15 min & Instant & 2-6 sec \\
-TPS & 7 & 30 & 5,000+ & 5,000+ \\
-Privacy & None & None & None & Full \\
-Smart contracts & Limited & Yes & Yes & Yes \\
-Quantum-safe & No & No & No & Yes \\ \bottomrule
+\textbf{Feature} & \textbf{Zcash} & \textbf{Token-2022} & \textbf{Privacy rollups} & \textbf{Rand} \\ \midrule
+Hides amounts & Yes & Yes & Yes & Yes \\
+Hides participants & Yes & \textbf{No} & Yes & Yes \\
+Native USDT/USDC & \textbf{No} & \textbf{No} & \textbf{Bridged} & \textbf{Yes} \\
+Solana speed & \textbf{No} & Yes & \textbf{No} & Yes \\
+No bridge required & \textbf{No} & Yes & \textbf{No} & Yes \\
+PQ confidentiality & \textbf{No} & \textbf{No} & \textbf{No} & Yes \\ \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Our unique position:} Only blockchain combining privacy, speed, AND post-quantum security.
+\textbf{Our position:} the only way to transact native Solana USDT and USDC with full confidentiality, without bridging and without leaving the chain the liquidity is on.
 
 %==============================================================================
 \section{Business Model}
@@ -288,19 +280,20 @@ Quantum-safe & No & No & No & Yes \\ \bottomrule
 \subsection{Revenue Sources}
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{Transaction Fees:} \$0.001-0.01 (public), \$0.10-1.00 (private)
-    \item \textbf{USDB Seigniorage:} Value capture from stablecoin growth
-    \item \textbf{Protocol Treasury:} 10\% of fees, 20\% of inflation
+    \item \textbf{Confidential transfer fees:} treasury share of every SHRUGG fee
+    \item \textbf{zUSDT volume:} fees on shielded stablecoin transfers
+    \item \textbf{Fee burn:} reduces supply as usage grows
 \end{enumerate}
 
 \subsection{Value Capture}
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{Fee Burn:} 10-20\% burned, reducing supply
-    \item \textbf{Staking Yields:} 5-10\% APR for stakers
-    \item \textbf{Governance:} Token holders control upgrades
-    \item \textbf{USDB Growth:} Drives token demand
+    \item \textbf{Usage-driven demand:} every confidential transfer requires buying SHRUGG
+    \item \textbf{Fee burn:} 10\% of each fee, tying supply to volume
+    \item \textbf{Treasury:} 20\% of fees fund development and audits
 \end{enumerate}
+
+\textbf{No staking yield.} There is nothing to stake, because Solana secures the chain. SHRUGG accrues value from demand rather than from emissions --- which means slower early distribution, and no inflationary sell pressure.
 
 %==============================================================================
 \section{Go-to-Market Strategy}
@@ -317,29 +310,31 @@ Quantum-safe & No & No & No & Yes \\ \bottomrule
 
 \textbf{KPIs:} 50+ developers, 10+ apps in development, 3+ audits
 
-\subsection{Phase 2: Testnet (Months 6-12)}
+\subsection{Phase 2: Devnet and Audit (Months 6--12)}
 
 \begin{itemize}[leftmargin=*]
-    \item Public testnet with 50+ validators
-    \item \$2M bug bounty
-    \item Enterprise pilots
+    \item Programs deployed to Solana devnet, then mainnet-beta with deposit caps
+    \item Trusted setup ceremony, run publicly
+    \item \$2M bug bounty; two independent circuit and program audits
 \end{itemize}
 
-\textbf{KPIs:} 100K+ testnet transactions, 10K+ wallets
+\textbf{KPIs:} audits complete, ceremony concluded, 10K+ devnet shielded transfers
 
-\subsection{Phase 3: Mainnet Launch (Month 12)}
+\subsection{Phase 3: Mainnet with Caps (Month 12)}
 
 \begin{itemize}[leftmargin=*]
-    \item 90\% collateralized USDB
-    \item 50-100 validators
-    \item \$5M marketing budget
+    \item Shielded pool live on Solana mainnet, deposits capped and raised on evidence
+    \item zUSDT launched at full reserve
+    \item Relayer network open to anyone
 \end{itemize}
 
-\textbf{KPIs:} \$100M TVL, 100K+ transactions/day
+\textbf{KPIs:} \$10M shielded TVL, growing anonymity set
+
+\textbf{Note on caps:} a shielded pool is a publicly quantified honeypot, so its balance is the reward for breaking it. Caps that rise with operating history are the responsible way to launch, and we prefer slower growth to an uncapped pool secured only by optimism.
 
 \subsection{Phase 4: Growth (Year 2+)}
 
-Focus: DeFi, payments, enterprise, gaming, social
+Focus: business payments, payroll, treasury operations, exchange settlement. Extend to native USDC on identical terms.
 
 %==============================================================================
 \section{Investment Opportunity}
@@ -377,11 +372,12 @@ Staking Rewards & 20\% \\ \bottomrule
 \subsection{Risk Factors \& Mitigations}
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{Technology:} Multiple audits, conservative launch
-    \item \textbf{Market:} Enterprise focus, real use cases
-    \item \textbf{Regulatory:} KYC at fiat on/off-ramps
-    \item \textbf{Competition:} First-mover advantage, network effects
-    \item \textbf{Execution:} Experienced team, phased rollout
+    \item \textbf{Program defect:} the pool is a concentrated, publicly valued target. Mitigation: deposit caps, two independent audits, formal verification of mint/redeem and state transitions.
+    \item \textbf{Anonymity set size:} privacy is weakest at launch, exactly when users may assume otherwise. Mitigation: communicate this plainly; a single multi-asset pool rather than one per asset.
+    \item \textbf{Solana dependency:} our safety ceiling is Solana's. A consensus failure there could permit a double-spend here. Accepted deliberately in exchange for native assets and no security budget.
+    \item \textbf{Tether freeze:} could halt zUSDT redemption. Mitigation: reserve sharding. Cannot be eliminated.
+    \item \textbf{Quantum forgery before verifier upgrade:} bounded by pool size, detectable via reserve auditing, mitigated by upgrading the verifier.
+    \item \textbf{Regulatory:} privacy tooling attracts scrutiny. Mitigation: no protocol-level anonymity for the issuer, optional viewing keys for holders needing to disclose to auditors or regulators, KYC at fiat on/off-ramps.
 \end{enumerate}
 
 %==============================================================================
@@ -393,25 +389,27 @@ Staking Rewards & 20\% \\ \bottomrule
 \begin{tabular}{@{}lccc@{}}
 \toprule
 \textbf{Metric} & \textbf{Year 1} & \textbf{Year 2} & \textbf{Year 3} \\ \midrule
-Active addresses & 100K+ & 1M+ & 10M+ \\
-TVL & \$100M+ & \$1B+ & \$10B+ \\
-ATLAS market cap & \$100M+ & \$500M+ & \$1B+ \\
-SHRUG market cap & \$50M+ & \$250M+ & \$500M+ \\
-USDB supply & \$10M+ & \$100M+ & \$500M+ \\
-Applications & 10+ & 50+ & 100+ \\ \bottomrule
+Shielded TVL & \$10M+ & \$150M+ & \$1B+ \\
+Confidential transfers/day & 1K+ & 25K+ & 250K+ \\
+Anonymity set (active notes) & 50K+ & 1M+ & 10M+ \\
+zUSDT supply & \$5M+ & \$75M+ & \$500M+ \\
+Active relayers & 10+ & 50+ & 200+ \\
+SHRUGG market cap & \$50M+ & \$250M+ & \$750M+ \\ \bottomrule
 \end{tabular}
 \end{table}
+
+\textbf{The metric that matters most is anonymity set size.} TVL can be supplied by a handful of large depositors while leaving privacy weak; a large set of active notes cannot. We report both.
 
 %==============================================================================
 \section{Why Rand Will Win}
 %==============================================================================
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{Technical Superiority:} Solving real problems competitors ignore
-    \item \textbf{Market Position:} First mover in ``fast + private + quantum-safe''
-    \item \textbf{Economic Design:} Dual-token model aligns incentives
-    \item \textbf{Timing:} Quantum threat awareness rising, privacy demand growing
-    \item \textbf{Execution:} Proven technology building blocks, realistic roadmap
+    \item \textbf{We start where the liquidity is.} Competitors must attract stablecoin issuers, validators, and liquidity to a new chain before being useful. Native USDT and USDC are already on Solana.
+    \item \textbf{No bridge.} The largest losses in crypto are bridge failures. Reserve and token share a chain, so there is no bridge to attack.
+    \item \textbf{Structural token demand.} Every confidential transfer must buy SHRUGG to pay a relayer. Demand tracks usage, not emissions.
+    \item \textbf{Honest post-quantum positioning.} We are post-quantum where it is irreversible and explicit about where we are not. That distinction is defensible under scrutiny; blanket claims are not.
+    \item \textbf{Small surface.} Three programs and a fee token. No consensus protocol, no validator set, no staking, no stablecoin peg mechanism --- each an entire class of failure we do not carry.
 \end{enumerate}
 
 %==============================================================================

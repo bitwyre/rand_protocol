@@ -32,10 +32,14 @@ Bitwyre Research\\
 \maketitle
 
 \begin{abstract}
-We present a comprehensive security analysis of the Rand blockchain protocol, providing formal proofs of security under both classical and quantum adversarial models. We establish rigorous security guarantees for the hybrid Proof-of-Useful-Work and Byzantine Fault Tolerant consensus mechanism, the STARK-based privacy system, and the CRYSTALS-Dilithium/Kyber post-quantum cryptographic primitives. We analyze resistance to a comprehensive taxonomy of attacks including: 51\% attacks, long-range attacks, nothing-at-stake, grinding attacks, eclipse attacks, Sybil attacks, front-running, timing attacks, and quantum adversaries. For each attack vector, we provide formal security bounds and concrete parameter recommendations. We prove that the system achieves 128-bit post-quantum security under standard lattice hardness assumptions.
+We present a security analysis of the Rand protocol, a shielded pool deployed as a set of programs on Solana. Because Rand operates no validator set of its own, this analysis differs in scope from that of a Layer 1: consensus safety and liveness are inherited from Solana and are treated as assumptions rather than results, and we state explicitly where Rand's guarantees are conditional on them.
+
+Our results concern the privacy construction and its cryptographic foundations. We prove transaction unlinkability and nullifier unlinkability under the zero-knowledge property of Groth16 and the collision resistance of Poseidon, and we establish conditional double-spend resistance from nullifier account uniqueness given Solana finality. We give a formal account of Rand's asymmetric post-quantum posture: note confidentiality, commitment hiding, and spend authorisation are post-quantum under lattice and QROM assumptions, while proof soundness rests on BN254 pairings and is therefore classical. We prove that this asymmetry is the correct allocation of a fixed budget, on the grounds that published ciphertexts are permanently exposed whereas an upgradeable verifier is not, and we state plainly the attack it leaves open.
+
+We further enumerate leaks lying outside the proof system: public asset identifiers and fees, relayer-observable network metadata, anonymity set size, and note discovery. We regard understating these as a more serious defect in a privacy system than the leaks themselves.
 \end{abstract}
 
-\noindent\textbf{Keywords:} Post-Quantum Cryptography, Blockchain Security, Zero-Knowledge Proofs, Byzantine Fault Tolerance, Lattice Cryptography, STARK
+\noindent\textbf{Keywords:} Post-Quantum Cryptography, Shielded Pool, Zero-Knowledge Proofs, Groth16, Lattice Cryptography, Solana, Metadata Privacy
 
 \tableofcontents
 \newpage
@@ -46,13 +50,17 @@ We present a comprehensive security analysis of the Rand blockchain protocol, pr
 
 The security of blockchain systems rests on cryptographic assumptions that face unprecedented challenges from advances in quantum computing. Shor's algorithm renders RSA and elliptic curve cryptography insecure against quantum adversaries, while Grover's algorithm reduces the effective security of symmetric primitives by half.
 
-This paper provides comprehensive security proofs for the Rand protocol, establishing:
+This paper establishes, for the Rand protocol:
 \begin{enumerate}
-    \item Post-quantum security of all cryptographic primitives under lattice assumptions
-    \item Consensus security with formal Byzantine fault tolerance guarantees
-    \item Privacy guarantees with zero-knowledge proofs in the quantum random oracle model
-    \item Attack resistance with concrete security bounds for each attack vector
+    \item Post-quantum security of the confidentiality primitives under lattice and QROM assumptions
+    \item A formal argument for treating soundness and confidentiality asymmetrically, and an honest statement of the residual quantum attack
+    \item Privacy guarantees for the shielded transfer construction, together with an enumeration of leaks outside the proof system
+    \item Conditional double-spend resistance, with the Solana assumptions it depends on made explicit
 \end{enumerate}
+
+\begin{remark}[Scope]
+Rand runs as programs on Solana and operates no validator set. Consensus-level analysis, which occupied a substantial part of earlier versions of this document, is therefore not Rand's to provide: safety and liveness of ordering are Solana's, and appear below as assumptions. We consider it preferable to state this than to restate proofs about a consensus protocol Rand does not run.
+\end{remark}
 
 \subsection{Security Model}
 
@@ -61,7 +69,7 @@ We consider adversaries of increasing capability:
 \begin{enumerate}
     \item $\mathcal{A}_{\text{PPT}}$: Classical probabilistic polynomial-time adversary
     \item $\mathcal{A}_{\text{QPT}}$: Quantum polynomial-time adversary with quantum random oracle access
-    \item $\mathcal{A}_{\text{Byzantine}}$: Network adversary controlling $f < n/3$ Byzantine nodes
+    \item $\mathcal{A}_{\text{Chain}}$: Adversary able to influence Solana's ordering, up to and including reorganisation of finalised history
     \item $\mathcal{A}_{\text{Economic}}$: Rational adversary maximizing profit
 \end{enumerate}
 \end{definition}
@@ -155,9 +163,10 @@ We enumerate all cryptographic operations in Rand:
     \item Signatures: CRYSTALS-Dilithium (lattice-based) - immune to Shor
     \item Key exchange: CRYSTALS-Kyber (lattice-based) - immune to Shor
     \item Hashing: SHA-3, BLAKE3 (symmetric) - Shor does not apply
-    \item ZK proofs: STARKs (hash-based) - immune to Shor
+    \item Note commitments: Poseidon (hash-based) - Shor does not apply
+    \item ZK proof soundness: Groth16 over BN254 - \textbf{broken by Shor}, see Section \ref{sec:asym}
 \end{itemize}
-None rely on factoring or discrete logarithms.
+With one exception. Groth16 verification evaluates pairings on BN254, whose security rests on the elliptic-curve discrete logarithm problem, and Shor's algorithm solves it. Rand's proof soundness is therefore \emph{not} post-quantum. Section \ref{sec:asym} argues that this is the correct place to absorb the compromise, and Section \ref{sec:residual} states precisely what it permits an adversary to do.
 \end{proof}
 
 \subsection{Grover's Algorithm Impact}
@@ -181,85 +190,104 @@ Dilithium forgery & $2^{128}$ & $2^{128}$* & Level 2 \\ \bottomrule
 
 *Lattice problems are not amenable to Grover speedup.
 
-\subsection{STARK Post-Quantum Security}
+\subsection{Asymmetric Post-Quantum Posture}
+\label{sec:asym}
 
-\begin{theorem}[STARK Quantum Security]
-STARKs provide post-quantum security under the assumption that the underlying hash function is collision-resistant in the QROM.
+Rand does not claim uniform post-quantum security. It claims post-quantum \emph{confidentiality} alongside classical \emph{soundness}, and this section argues that the split is principled rather than expedient.
+
+The relevant distinction is temporal. Some security properties, once violated, are violated retroactively over all data ever published; others are re-established at each use and can be strengthened before the violation occurs.
+
+\begin{definition}[Irrevocable and Renewable Properties]
+A security property is \emph{irrevocable} if an adversary who obtains the relevant capability at time $t_1$ can violate it with respect to data published at any $t_0 < t_1$. It is \emph{renewable} if violation requires the capability at the moment of use, so that replacing the mechanism before $t_1$ preserves the property.
+\end{definition}
+
+\begin{theorem}[Correct Allocation of Post-Quantum Budget]
+\label{thm:alloc}
+Given a construction in which post-quantum security can be afforded for either confidentiality or soundness but not both, allocating it to confidentiality strictly dominates.
 \end{theorem}
 
 \begin{proof}
-STARKs rely solely on:
-\begin{enumerate}
-    \item FRI Protocol: Information-theoretically sound
-    \item Fiat-Shamir: Secure in QROM
-    \item Merkle Trees: Quantum-secure hash commitments
-\end{enumerate}
-The soundness error is bounded by:
-\[
-\epsilon_{\text{STARK}} \leq \epsilon_{\text{FRI}} + \epsilon_{\text{collision}} + q_H \cdot 2^{-\lambda}
-\]
-In the QROM with 256-bit hashes, $\epsilon_{\text{collision}} \leq 2^{-85}$, giving 85-bit quantum soundness.
+Confidentiality of published ciphertexts is irrevocable. A note ciphertext committed to the ledger at $t_0$ is recorded permanently by any observer; an adversary acquiring quantum capability at $t_1 > t_0$ decrypts it, and no action during $(t_0, t_1)$ prevents this, since publication cannot be undone. Allocating post-quantum security elsewhere therefore forfeits confidentiality of all history.
+
+Soundness is renewable. It is enforced by a verifier executed afresh at each verification, and Solana programs are upgradeable, so the verifier may be replaced at any $t < t_1$. Proofs verified before the replacement were checked under an assumption then unbroken; proofs after it are checked under the new one. Post-quantum soundness is thus obtainable later at no retroactive cost.
+
+Allocating to confidentiality secures an irrevocable property immediately and defers a renewable one; allocating to soundness secures a renewable property that could have been deferred and permanently forfeits an irrevocable one. The former dominates.
 \end{proof}
+
+\begin{table}[h]
+\centering
+\caption{Post-Quantum Status by Property}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Property} & \textbf{Primitive} & \textbf{Class} & \textbf{PQ} \\ \midrule
+Note confidentiality & ML-KEM (Kyber768) & irrevocable & yes \\
+Commitment hiding & Poseidon & irrevocable & yes \\
+Spend authorisation & ML-DSA (Dilithium2) & irrevocable & yes \\
+Proof soundness & Groth16 / BN254 & renewable & \textbf{no} \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Residual Quantum Attack}
+\label{sec:residual}
+
+We state the consequence of Theorem \ref{thm:alloc} without softening it.
+
+\begin{proposition}[Residual Attack Surface]
+An adversary possessing a cryptographically relevant quantum computer, acting before the verifier is upgraded, can compute discrete logarithms on BN254, forge a Groth16 proof for a false statement, and thereby withdraw value from the shielded pool without owning corresponding notes. Such an adversary cannot decrypt historical note ciphertexts, recover spend keys from published commitments, or deanonymise past transfers.
+\end{proposition}
+
+The exposure is therefore to theft of pool balances at the time of attack, not to retrospective loss of privacy. We regard this as the correct risk to carry, since the former is bounded by pool size and detectable through supply auditing, while the latter would be unbounded, silent, and irreversible.
+
+\begin{remark}[Migration trigger]
+The verifier should be replaced once a succinct post-quantum argument system exists whose proofs fit a Solana transaction and whose verification fits the compute budget. Neither lattice-based nor hash-based succinct arguments met both conditions at the time of writing; the binding constraint is the 1232-byte transaction limit rather than proving cost.
+\end{remark}
 
 \subsection{Overall Post-Quantum Security}
 
-\begin{theorem}[Overall Post-Quantum Security]
-The Rand protocol achieves 128-bit security against quantum polynomial-time adversaries under:
+\begin{theorem}[Post-Quantum Confidentiality]
+Rand achieves 128-bit \emph{confidentiality} against quantum polynomial-time adversaries under:
 \begin{enumerate}
-    \item Module-LWE assumption with parameters $(n = 256, k = 4, q = 8380417)$
-    \item Module-SIS assumption with the same parameters
-    \item SHA-3/BLAKE3 modeled as quantum random oracles
+    \item Module-LWE with parameters $(n = 256, k = 4, q = 8380417)$
+    \item Module-SIS with the same parameters
+    \item SHA-3, BLAKE3, and Poseidon modelled as quantum random oracles
 \end{enumerate}
 \end{theorem}
 
+\begin{remark}
+This theorem is deliberately narrower than the corresponding claim in earlier versions of this document, which asserted 128-bit post-quantum security for the protocol as a whole. That claim is not supported once soundness rests on BN254, and it has been withdrawn rather than qualified.
+\end{remark}
+
 %==============================================================================
-\section{Consensus Security}
+\section{Inherited Consensus Assumptions}
 %==============================================================================
 
-\subsection{HotStuff BFT Security}
+Rand runs no consensus protocol. This section states what is assumed of Solana and what fails if the assumption fails.
 
-\begin{assumption}[Network Model]
-We assume partial synchrony: there exists an unknown Global Stabilization Time (GST) after which all messages are delivered within known bound $\Delta$.
+\begin{assumption}[Solana Finality]
+\label{asm:finality}
+A transaction finalised by Solana is never reordered or reverted.
 \end{assumption}
 
-\begin{definition}[BFT Safety]
-A consensus protocol satisfies safety if no two honest validators ever commit to conflicting blocks.
-\end{definition}
+\begin{assumption}[Solana Liveness]
+Submitted transactions paying sufficient priority fee are eventually included.
+\end{assumption}
 
-\begin{definition}[BFT Liveness]
-A consensus protocol satisfies liveness if, after GST, all honest validators eventually commit to new blocks.
-\end{definition}
-
-\begin{theorem}[HotStuff Safety]
-If at most $f < n/3$ validators are Byzantine, HotStuff satisfies safety.
+\begin{theorem}[Conditional Double-Spend Resistance]
+\label{thm:nodouble}
+Under Assumption \ref{asm:finality}, no note in the shielded pool can be spent twice.
 \end{theorem}
 
 \begin{proof}
-Suppose honest validators $V_1$ and $V_2$ commit to conflicting blocks $B$ and $B'$ at the same height.
-
-For $V_1$ to commit $B$, it must have received a commitQC with $2f + 1$ signatures. For $V_2$ to commit $B'$, same requirement.
-
-Let $S_B$ and $S_{B'}$ be the signing sets. Since $|S_B|, |S_{B'}| \geq 2f + 1$ and total validators $n = 3f + 1$:
-\[
-|S_B \cap S_{B'}| \geq (2f + 1) + (2f + 1) - (3f + 1) = f + 1
-\]
-
-This means at least $f + 1$ validators signed both. Since at most $f$ are Byzantine, at least one honest validator signed both, contradicting protocol rules.
+A note determines a unique nullifier $\mathsf{nf} = \mathsf{Poseidon}(\mathsf{nk} \| \rho)$, and the circuit constrains its derivation, so a spend of a given note cannot present any other value. The pool program creates a program-derived account seeded by $\mathsf{nf}$; the runtime fails account creation if the account already exists. By Assumption \ref{asm:finality} the two spend attempts are totally ordered; the earlier creates the account and succeeds, the later attempts creation of an existing account and aborts. Hence at most one spend of any note is finalised.
 \end{proof}
 
-\begin{theorem}[HotStuff Liveness]
-After GST, if at most $f < n/3$ validators are Byzantine, HotStuff makes progress within $O(\Delta)$ time per block.
-\end{theorem}
+\begin{remark}[Failure mode]
+Theorem \ref{thm:nodouble} is conditional, and the condition is load-bearing. Were finalised Solana history reorganised, nullifier account creations could be reordered or dropped and the argument would not hold. Rand has no independent defence: its safety ceiling is Solana's. This is the direct cost of not operating a validator set, and it should be weighed against the corresponding benefits, namely native asset access and no separate security budget.
+\end{remark}
 
-\subsection{Validator Set Security}
-
-\begin{theorem}[Permissionless Entry Security]
-The validator entry mechanism is secure against Sybil attacks when:
-\[
-S_{\min} \cdot \text{Cost}(\text{ATLAS}) > \text{ExpectedReward}
-\]
-where $S_{\min}$ is minimum stake and Cost(ATLAS) is the market cost of acquiring tokens.
-\end{theorem}
+\begin{remark}[Sybil resistance]
+Rand requires no Sybil resistance mechanism. It has no validator set to join, no stake to acquire, and no leader election to influence. Relaying is permissionless by design and a relayer cannot alter the operation it submits, since every public input is bound by the proof; the worst behaviour available to a relayer is to decline, which leaves the operation available to others.
+\end{remark}
 
 %==============================================================================
 \section{Privacy Security}
@@ -275,27 +303,48 @@ A private transaction scheme satisfies unlinkability if for any PPT adversary $\
 where $\text{tx}_0$ and $\text{tx}_1$ are transactions with different hidden senders/recipients/amounts.
 \end{definition}
 
-\begin{theorem}[STARK Zero-Knowledge]
-The STARK proof system satisfies computational zero-knowledge: there exists a PPT simulator $\mathcal{S}$ such that for all $(x, w) \in R$:
+\begin{theorem}[Groth16 Zero-Knowledge]
+Groth16 satisfies computational zero-knowledge: there exists a PPT simulator $\mathcal{S}$ such that for all $(x, w) \in R$:
 \[
 \{\text{Prove}(x, w)\} \approx_c \{\mathcal{S}(x)\}
 \]
 \end{theorem}
 
 \begin{theorem}[Nullifier Unlinkability]
-Nullifiers $\text{nf} = H(\text{sk} \| \rho)$ are unlinkable to their corresponding commitments under the PRF security of $H$.
+Nullifiers $\mathsf{nf} = \mathsf{Poseidon}(\mathsf{nk} \| \rho)$ are unlinkable to their corresponding commitments under the PRF security of Poseidon.
 \end{theorem}
 
 \begin{theorem}[Transaction Privacy]
-Private transactions in Rand reveal only:
+A shielded transfer reveals only:
 \begin{enumerate}
-    \item Merkle root (which anonymity set is used)
-    \item Nullifiers (that some notes are spent)
-    \item New commitments (that some notes are created)
-    \item Transaction fee (amount of SHRUG spent on gas)
+    \item The Merkle root, hence which anonymity set is used
+    \item Nullifiers, hence that some notes are spent
+    \item Output commitments, hence that some notes are created
+    \item The asset identifier and the SHRUGG fee
 \end{enumerate}
-and nothing about sender identity, recipient identity, amounts, or asset types.
+and nothing about sender identity, recipient identity, or amounts.
 \end{theorem}
+
+\subsection{Leaks Outside the Proof System}
+
+Theorem statements about the circuit do not bound what an observer learns in practice. We enumerate the gaps.
+
+\begin{table}[h]
+\centering
+\caption{Metadata Leaks and Mitigations}
+\begin{tabular}{@{}llp{4.6cm}@{}}
+\toprule
+\textbf{Leak} & \textbf{Observable by} & \textbf{Mitigation} \\ \midrule
+Asset identifier & anyone & none; inherent to a multi-asset pool \\
+Fee amount & anyone & fee quantisation to reduce distinguishability \\
+Network origin & relayer & anonymising transport \\
+Anonymity set size & anyone & none; improves only with adoption \\
+Note discovery scan & indexer, if delegated & self-scan; fuzzy message detection \\
+Deposit and withdrawal & anyone & timing separation, amount quantisation \\ \bottomrule
+\end{tabular}
+\end{table}
+
+Two deserve emphasis. First, transfers are formally private within an anonymity set whose size the protocol cannot guarantee; a transfer in a pool with few active participants is identifiable in practice irrespective of the cryptography, and early deployments are therefore weakest precisely when users may assume otherwise. Second, deposits and withdrawals are transparent at the pool boundary, so correlating an entry with a later exit of similar magnitude and timing remains the most effective attack against the system. Neither is a defect in the proof system, and neither is fixed by strengthening it.
 
 %==============================================================================
 \section{Attack Resistance Analysis}
@@ -303,31 +352,23 @@ and nothing about sender identity, recipient identity, amounts, or asset types.
 
 \subsection{Consensus-Level Attacks}
 
-\subsubsection{51\% Attack}
+Attacks on ordering and Sybil resistance apply to Solana, not to Rand, and Rand neither defends against them nor claims to. Their treatment belongs to analyses of Solana's consensus.
 
-\begin{theorem}[51\% Attack Resistance]
-Under BFT consensus, an adversary needs $>66.7\%$ (not 51\%) of stake to violate safety.
-\end{theorem}
+\begin{table}[h]
+\centering
+\caption{Consensus-Level Attacks Under Inheritance}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Attack} & \textbf{Applies to Rand?} & \textbf{Consequence if successful} \\ \midrule
+51\% / stake majority & no, to Solana & Assumption \ref{asm:finality} fails; double-spend possible \\
+Long-range & no, to Solana & as above \\
+Nothing-at-stake & no, to Solana & as above \\
+Grinding & no, to Solana & leader prediction; no Rand-specific effect \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\begin{corollary}
-The 51\% attack threshold is actually 66.7\% for BFT systems, providing stronger security than Nakamoto consensus.
-\end{corollary}
-
-\subsubsection{Nothing-at-Stake Attack}
-
-\begin{theorem}[Nothing-at-Stake Prevention]
-Slashing conditions eliminate nothing-at-stake:
-\[
-\text{Penalty}_{\text{double-sign}} = 0.33 \cdot \text{Stake}
-\]
-makes double-signing economically irrational.
-\end{theorem}
-
-\subsubsection{Grinding Attack}
-
-\begin{theorem}[Grinding Resistance]
-VRF-based leader selection with $\text{Leader}(v) = \text{VRF}_{\text{sk}}(\text{epoch\_seed} \| v)$ is grinding-resistant.
-\end{theorem}
+Every entry reduces to the same statement: Rand's safety is conditional on Solana's, and a successful consensus attack on Solana invalidates Theorem \ref{thm:nodouble}. Restating BFT threshold arguments here would imply Rand enforces them, which it does not.
 
 \subsection{Network-Level Attacks}
 
@@ -391,30 +432,25 @@ Quantum (Grover) & N/A & 256-bit primitives & Larger keys \\ \bottomrule
 \section{Economic Security}
 %==============================================================================
 
-\subsection{Attack Cost Analysis}
+Rand has no stake, so the customary analysis, in which attack cost is bounded below by the price of acquiring a stake fraction, does not apply. Two economic questions take its place.
 
-\begin{theorem}[Economic Security Threshold]
-The cost to attack Rand consensus is:
-\[
-\text{AttackCost} \geq \frac{n}{3} \cdot S_{\min} \cdot P_{\text{ATLAS}} + \text{SlashingLoss}
-\]
-\end{theorem}
+\subsection{Relayer Market Liveness}
 
-\begin{corollary}
-With $n = 100$ validators, $S_{\min} = 100{,}000$ ATLAS, $P_{\text{ATLAS}} = \$1$:
-\[
-\text{AttackCost} \geq 33 \cdot 100{,}000 \cdot 1 \cdot 1.33 = \$4.4M
-\]
-\end{corollary}
+Shielded operations reach the chain only if some relayer finds submission profitable. With in-circuit fee $f$ in SHRUGG and cost $c$ in SOL, a relayer submits when $f \cdot p_{\text{SHRUGG}} > c \cdot p_{\text{SOL}}$.
 
-\subsection{Incentive Compatibility}
+\begin{proposition}[Liveness Under Rational Relayers]
+If at least one rational relayer observes the queue and users set $f$ such that $f \cdot p_{\text{SHRUGG}}$ exceeds prevailing costs, every operation is eventually submitted.
+\end{proposition}
 
-\begin{theorem}[Honest Behavior Incentive]
-For validators, honest behavior is a Nash equilibrium when:
-\[
-\text{HonestReward} > \text{AttackReward} - \text{SlashingPenalty} \cdot \Pr[\text{Caught}]
-\]
-\end{theorem}
+The dependence runs on the price ratio. A sharp fall in SHRUGG against SOL, or a congestion spike in priority fees, can render outstanding operations unprofitable, stalling them until users re-price. This is a liveness risk without a safety component: a stalled operation is not lost, since its notes remain unspent and it may be resubmitted at a higher fee. Users should nonetheless expect degraded service under adverse conditions rather than a hard guarantee.
+
+\subsection{Pool Balance as Attack Incentive}
+
+Absent staking, the economically relevant target is the pool itself. Its balance is public, since deposits and withdrawals are transparent, so the reward for a successful soundness break is known to any attacker in advance.
+
+\begin{remark}
+This is a genuine and structural weakness. A shielded pool is a concentrated, publicly quantified honeypot whose exploitation depends on a single soundness assumption and one program's correctness. It argues for a conservative deposit cap during early operation, for supply auditing sufficient to detect unbacked withdrawal quickly, and for a bounded rather than open-ended migration path away from BN254. We prefer to state this plainly rather than present a stake-based cost bound that does not apply.
+\end{remark}
 
 %==============================================================================
 \section{Concrete Parameters}
@@ -432,17 +468,16 @@ Signatures & Dilithium2 & 128-bit quantum \\
 Key encapsulation & Kyber768 & 192-bit quantum \\
 Symmetric encryption & AES-256-GCM & 128-bit quantum \\
 \midrule
-\multicolumn{3}{c}{\textit{STARK Parameters}} \\
-Field & Goldilocks ($p = 2^{64} - 2^{32} + 1$) & - \\
-Blowup factor & 8 & Soundness $2^{-100}$ \\
-FRI queries & 30 & Soundness $2^{-100}$ \\
-Hash & BLAKE3-256 & 85-bit quantum \\
+\multicolumn{3}{c}{\textit{Proof System Parameters}} \\
+Argument system & Groth16 over BN254 & \textbf{classical} soundness \\
+In-circuit hash & Poseidon & 128-bit hiding \\
+Proof size & 256 bytes & fits one Solana transaction \\
+Setup & per-circuit MPC ceremony & secure if one party honest \\
 \midrule
-\multicolumn{3}{c}{\textit{Consensus Parameters}} \\
-Validators & $n = 100$ & BFT $f < 33$ \\
-Minimum stake & 100,000 ATLAS & Economic security \\
-Block time & 2 seconds & - \\
-Finality & 3 rounds ($\sim$6 seconds) & Deterministic \\
+\multicolumn{3}{c}{\textit{Settlement Parameters (inherited)}} \\
+Ordering & Solana Proof of History & assumption, not result \\
+Finality & Solana schedule & Assumption \ref{asm:finality} \\
+Recent-root window & 64 & concurrency tolerance \\
 \midrule
 \multicolumn{3}{c}{\textit{Privacy Parameters}} \\
 Merkle tree depth & 32 & $2^{32}$ notes capacity \\
@@ -456,25 +491,27 @@ Note commitment & 256 bits & 128-bit hiding \\
 \section{Conclusion}
 %==============================================================================
 
-We have provided comprehensive security proofs for the Rand protocol, demonstrating:
+We have analysed the security of the Rand shielded pool, establishing:
 
 \begin{enumerate}
-    \item 128-bit post-quantum security under standard lattice assumptions
-    \item BFT consensus security with formal safety and liveness proofs
-    \item Transaction privacy with zero-knowledge guarantees in the QROM
-    \item Resistance to all major attack vectors with concrete security bounds
+    \item 128-bit post-quantum \emph{confidentiality} under lattice and QROM assumptions
+    \item That allocating a limited post-quantum budget to confidentiality rather than soundness strictly dominates (Theorem \ref{thm:alloc}), together with an explicit statement of the attack this leaves open
+    \item Transaction and nullifier unlinkability under Groth16 zero-knowledge and Poseidon collision resistance
+    \item Conditional double-spend resistance (Theorem \ref{thm:nodouble}), with its dependence on Solana finality made explicit
 \end{enumerate}
 
-Our analysis shows that Rand provides the strongest security guarantees of any blockchain combining fast finality with permissionless participation. The post-quantum cryptographic foundations ensure long-term security as quantum computing advances.
+We make no claim to the strongest security guarantees available. Rand's safety is bounded above by Solana's, its proof soundness is classical pending a practical post-quantum succinct argument, and its practical privacy is bounded by anonymity set size and by boundary correlation between deposits and withdrawals rather than by the cryptography. These are the honest limits of the construction, and a privacy system whose stated guarantees exceed its real ones is more dangerous to its users than one with modest and accurate claims.
 
-Future work includes formal verification using proof assistants (Coq, Isabelle) and implementation audits of cryptographic primitives.
+Future work includes the trusted setup ceremony, formal verification of the circuit, mechanised proofs of the pool program's state transitions, and monitoring for a post-quantum argument system whose verification fits a Solana transaction.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{9}
 \bibitem{dilithium} Ducas et al., ``CRYSTALS-Dilithium,'' TCHES 2018.
 \bibitem{kyber} Bos et al., ``CRYSTALS-Kyber,'' Euro S\&P 2018.
 \bibitem{stark} Ben-Sasson et al., ``Scalable, transparent, and post-quantum secure computational integrity,'' CRYPTO 2018.
-\bibitem{hotstuff} Yin et al., ``HotStuff: BFT Consensus,'' PODC 2019.
+\bibitem{groth16} J. Groth, ``On the size of pairing-based non-interactive arguments,'' EUROCRYPT 2016.
+\bibitem{poseidon} L. Grassi et al., ``Poseidon: A new hash function for zero-knowledge proof systems,'' USENIX Security 2021.
+\bibitem{fmd} G. Beck, J. Len, I. Miers, and M. Green, ``Fuzzy message detection,'' ACM CCS 2021.
 \bibitem{grover} Grover, ``A fast quantum mechanical algorithm for database search,'' STOC 1996.
 \bibitem{shor} Shor, ``Algorithms for quantum computation,'' FOCS 1994.
 \end{thebibliography}
