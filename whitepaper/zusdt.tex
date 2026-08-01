@@ -20,13 +20,13 @@
 \newtheorem{remark}[theorem]{Remark}
 
 \title{\textbf{zUSDT: A Fully-Reserved Shielded Representation of USDT on Solana}\\[0.5em]
-\large Confidential Stablecoin Transfers Without Peg Risk}
+\large Confidential Stablecoin Transfers Without Peg Risk,\\over a Multi-Chain Locked Reserve}
 
 \author{Dendi Suhubdy\\
 Bitwyre Research\\
 \texttt{dendi@bitwyre.com}}
 
-\date{December 2025}
+\date{December 2025 \\ \small (Revised August 2026: multi-chain reserve)}
 
 \begin{document}
 
@@ -35,12 +35,14 @@ Bitwyre Research\\
 \begin{abstract}
 We present zUSDT, a shielded representation of Tether's USDT circulating on Solana. zUSDT is fully reserved: each unit is backed one-to-one by native USDT held in a Solana program, and is redeemable for that USDT on demand. It is deliberately not an algorithmic or fractional stablecoin. Because backing is complete, zUSDT has no reflexive dependence on the price of any volatile asset, and consequently no death-spiral surface of the kind that destroyed Terra's UST. The stability mechanisms that a fractional design requires---dynamic collateral ratios, rate-limited redemption, diversified volatility absorption---are unnecessary here and are absent by construction rather than by omission.
 
-The reserve and the shielded token occupy the same chain. zUSDT is not a bridged asset: no cross-chain message passing, no external validator set, and no wrapped-asset custodian stands between a holder and the underlying USDT. This is the property that distinguishes the design from wrapped stablecoins on other networks, and it is the reason full reserving is credible rather than nominal.
+The reserve is distributed across the chains on which USDT already circulates. USDT is locked in a reserve contract on Ethereum, Tron, BNB Chain or Solana, and zUSDT is minted on Solana against the aggregate, so that reserve capacity is not contingent on the issuer electing to deploy wherever the protocol happens to need supply. We generalise the reserve invariant accordingly, from $S \leq R$ for a single vault to $S \leq \sum_{c} R_c$ over the set of legs, and prove that this remains publicly decidable.
 
-Holders transact zUSDT confidentially through the Rand shielded pool, which conceals sender, recipient, and amount while leaving the reserve publicly auditable. We prove that total zUSDT supply never exceeds reserves, and that this remains verifiable despite individual balances being hidden. We are explicit about the risks that full reserving does not remove: the reserve is a publicly quantified concentration of value, redemption depends on program liveness, and USDT's issuer retains the ability to freeze the reserve, which is an unavoidable consequence of wrapping a centrally-administered asset.
+This is a departure from the previous revision of this paper, which argued for co-locating reserve and token on one chain and rejected cross-chain reserving outright. We do not withdraw that argument. Proposition \ref{prop:bridge} stands as stated: a leg whose reserve is attested rather than co-located yields $\min(\text{reserve solvency}, \text{attestation integrity})$ rather than reserve solvency alone. What has changed is the decision, not the analysis. We accept the weaker guarantee on the attested legs in exchange for reserve capacity independent of any single issuance decision, and we quantify the term rather than suppress it. The Solana leg remains free of it.
+
+Holders transact zUSDT confidentially through the Rand shielded pool, which conceals sender, recipient, and amount while leaving the reserve publicly auditable. We prove that total zUSDT supply never exceeds aggregate reserves, and that this remains verifiable despite individual balances being hidden. We are explicit about the risks that full reserving does not remove: the reserve is a publicly quantified concentration of value, redemption depends on program liveness, a coalition of $t$ attesting guardians can mint without a corresponding lock, and USDT's issuer retains the ability to freeze any leg, which is an unavoidable consequence of wrapping a centrally-administered asset.
 \end{abstract}
 
-\noindent\textbf{Keywords:} Stablecoin, Full Reserve, Shielded Transfers, Solana, Proof of Reserves, USDT
+\noindent\textbf{Keywords:} Stablecoin, Full Reserve, Shielded Transfers, Solana, Proof of Reserves, USDT, Multi-Chain Reserve, Threshold Signatures
 
 \tableofcontents
 \newpage
@@ -51,7 +53,13 @@ Holders transact zUSDT confidentially through the Rand shielded pool, which conc
 
 Stablecoins carry the majority of settlement volume on Solana, and USDT and USDC circulate there as native issuances rather than bridged representations. They are also entirely transparent: every balance and every transfer is public. For payroll, treasury management, supplier settlement, or any activity whose counterparties and magnitudes are commercially sensitive, this transparency is disqualifying.
 
-zUSDT addresses precisely this gap and nothing else. It is a shielded wrapper: deposit native USDT, receive zUSDT, transact confidentially, redeem for native USDT. The peg is maintained by full reserving rather than by mechanism.
+zUSDT addresses precisely this gap and nothing else. It is a shielded wrapper: lock USDT, receive zUSDT, transact confidentially, redeem for USDT. The peg is maintained by full reserving rather than by mechanism.
+
+\subsection{Why the Reserve Spans Several Chains}
+
+USDT is not a single asset but a family of issuances, deployed by Tether across Ethereum, Tron, Solana, BNB Chain and others, each independently administered. A reserve confined to one of these inherits a constraint that has nothing to do with the design's soundness: its capacity is bounded by how much USDT the issuer has chosen to place on that particular chain, and expanding it requires a deployment decision that is not the protocol's to make. Tron and Ethereum together carry the overwhelming majority of USDT in circulation; a Solana-only reserve forgoes access to it.
+
+We therefore lock USDT on its home chain and mint against the aggregate. The construction is deliberately conventional --- a lock contract per chain, a threshold attestation, a mint authority on Solana --- and its novelty is confined to what it is composed with, namely a shielded pool and a reserve invariant that survives the generalisation.
 
 \subsection{What This Design Deliberately Excludes}
 
@@ -68,10 +76,11 @@ Full reserving and yield are mutually exclusive at the protocol level. A reserve
 \subsection{Contributions}
 
 \begin{itemize}
-    \item A fully-reserved shielded stablecoin construction on Solana, with reserve and token on the same chain and therefore no bridge
-    \item A proof that supply never exceeds reserves, preserved under shielding
-    \item A proof-of-reserves scheme that remains verifiable while individual balances are confidential
-    \item An explicit account of residual risks, including issuer freeze capability, which full reserving does not address
+    \item A fully-reserved shielded stablecoin construction on Solana, over a reserve distributed across the chains on which USDT is natively issued
+    \item A proof that supply never exceeds aggregate reserves, preserved under shielding, and stated conditionally on the guardian threshold rather than unconditionally
+    \item A proof-of-reserves scheme that remains verifiable while individual balances are confidential, with its multi-chain limitations --- non-simultaneous observation, and detection rather than prevention of threshold compromise --- made explicit
+    \item A per-leg statement of what the construction guarantees, retaining rather than retiring the proposition that argues against cross-chain reserving
+    \item An explicit account of residual risks, including guardian compromise, redemption liveness, and issuer freeze capability, which full reserving does not address
 \end{itemize}
 
 %==============================================================================
@@ -81,75 +90,100 @@ Full reserving and yield are mutually exclusive at the protocol level. A reserve
 
 \subsection{Components}
 
+Let $C$ denote the set of supported chains. We write $c_0$ for Solana, the chain on which the mint resides, and $C^{*} = C \setminus \{c_0\}$ for the attested legs.
+
 \begin{table}[H]
 \centering
 \caption{System Components}
 \begin{tabular}{@{}lll@{}}
 \toprule
 \textbf{Component} & \textbf{Location} & \textbf{Function} \\ \midrule
-Reserve vault & Solana program account & custodies native USDT \\
+Reserve vault & Solana program account & custodies USDT on $c_0$ \\
+Lock contract & one per $c \in C^{*}$ & immobilises USDT on its home chain \\
+Guardian set & off-chain, $t$-of-$n$ threshold & attests locks and burns on $C^{*}$ \\
 zUSDT mint & SPL token mint & issues and burns zUSDT \\
-Reserve program & Solana program & enforces the 1:1 invariant \\
+Reserve program & Solana program & enforces the aggregate invariant \\
 Shielded pool & Solana program (Rand) & confidential zUSDT transfers \\ \bottomrule
 \end{tabular}
 \end{table}
 
-The reserve program holds exclusive mint authority over zUSDT. No other account can issue it, and the program issues only on deposit.
+The reserve program holds exclusive mint authority over zUSDT. No other account can issue it, and the program issues only against a lock it can verify: directly, for $c_0$; by threshold attestation, for $C^{*}$.
 
 \subsection{Mint and Redeem}
 
-\begin{definition}[Mint]
-On receipt of $n$ units of native USDT into the reserve vault, the program mints exactly $n$ units of zUSDT to the depositor.
+\begin{definition}[Mint on $c_0$]
+On receipt of $n$ units of USDT into the reserve vault, the program mints exactly $n$ units of zUSDT to the depositor.
+\end{definition}
+
+\begin{definition}[Mint on $c \in C^{*}$]
+On presentation of an attestation, carrying at least $t$ of $n$ guardian signatures, that $n$ units of USDT were locked in the reserve contract of chain $c$ and that the attestation has not previously been consumed, the program mints exactly $n$ units of zUSDT to the nominated recipient.
 \end{definition}
 
 \begin{definition}[Redeem]
-On receipt of $n$ units of zUSDT, the program burns them and transfers exactly $n$ units of native USDT from the reserve vault to the redeemer.
+On receipt of $n$ units of zUSDT the program burns them, and either transfers $n$ units of USDT from the vault on $c_0$, or emits a burn receipt authorising release of $n$ units from the lock contract of a nominated $c \in C^{*}$ with sufficient balance.
 \end{definition}
 
-Both operations are atomic within a single Solana transaction: mint and deposit succeed or fail together, as do burn and withdrawal. There is no intermediate state in which zUSDT exists without corresponding reserves.
+On $c_0$ both operations are atomic within a single Solana transaction: mint and deposit succeed or fail together, as do burn and withdrawal. On $C^{*}$ atomicity is unattainable, since the two chains cannot be committed jointly, and the ordering is instead lock-then-attest-then-mint on entry and burn-then-attest-then-release on exit. Each ordering fails safe: an interrupted entry leaves USDT locked with no zUSDT issued, and an interrupted exit leaves zUSDT burned with USDT unreleased. Both leave $S \leq \sum_c R_c$ intact, and both are recoverable by replaying the attestation, which is idempotent by the replay check.
+
+\begin{remark}[Failing safe is not failing well]
+That the invariant survives an interrupted cross-chain operation is a statement about solvency, not about the holder, who in the second case is out of pocket until the attestation is replayed. Redemption liveness on $C^{*}$ therefore depends on guardian availability in a way that redemption on $c_0$ does not.
+\end{remark}
 
 \subsection{The Reserve Invariant}
 
-\begin{definition}[Reserve Invariant]
-Let $R$ denote the USDT balance of the reserve vault and $S$ the total supply of zUSDT. The system maintains
+\begin{definition}[Aggregate Reserve Invariant]
+Let $R_c$ denote the USDT immobilised on chain $c$ --- the vault balance for $c_0$, the lock contract balance for $c \in C^{*}$ --- and $S$ the total supply of zUSDT. The system maintains
 \begin{equation}
-S \leq R
+S \leq \sum_{c \in C} R_c
 \end{equation}
 at every point at which a transaction boundary is observable.
 \end{definition}
 
 \begin{theorem}[Invariant Preservation]
 \label{thm:invariant}
-If the reserve program is the sole mint authority for zUSDT, and mint and redeem are implemented as above, then $S \leq R$ holds after every transaction.
+If the reserve program is the sole mint authority for zUSDT, if mint and redeem are implemented as above, and if no attestation is honoured twice, then $S \leq \sum_{c} R_c$ holds after every transaction, provided fewer than $t$ guardians are compromised.
 \end{theorem}
 
 \begin{proof}
-Initially $S = R = 0$. Consider the possible state transitions.
+Initially $S = R_c = 0$ for all $c$. Consider the possible state transitions.
 
-A mint of $n$ increases $S$ by $n$ and, atomically, increases $R$ by $n$; the difference $R - S$ is unchanged. A redeem of $n$ decreases both by $n$; the difference is again unchanged. A transfer of zUSDT, transparent or shielded, alters neither $S$ nor $R$. A donation of USDT to the vault outside the mint path increases $R$ without increasing $S$, which increases $R - S$ and preserves the inequality.
+A mint of $n$ on $c_0$ increases $S$ by $n$ and, atomically, increases $R_{c_0}$ by $n$; the difference $\sum_c R_c - S$ is unchanged. A mint of $n$ on $c \in C^{*}$ increases $S$ by $n$ and is admitted only against an unconsumed attestation that $R_c$ has already increased by $n$; the difference is unchanged at the mint and was non-negative in the interval between lock and mint. A redeem of $n$ decreases $S$ by $n$ and the nominated $R_c$ by $n$, again preserving the difference, and is rejected if no leg holds sufficient balance. A transfer of zUSDT, transparent or shielded, alters neither $S$ nor any $R_c$. A donation to any vault or lock contract outside the mint path increases $\sum_c R_c$ without increasing $S$ and preserves the inequality.
 
-No other transition affects $S$: minting is restricted to the program's authority by assumption, and burning occurs only on the redeem path. Hence $R - S \geq 0$ is invariant, and $S \leq R$ holds after every transaction. Equality holds absent donations.
+No other transition affects $S$: minting is restricted to the program's authority by assumption, and burning occurs only on the redeem path. Replay is excluded by hypothesis, so no attestation can license two mints against one lock. Hence $\sum_c R_c - S \geq 0$ is invariant.
+
+The proviso on $t$ is not decorative. The step admitting a mint on $c \in C^{*}$ appeals to the attestation as evidence that $R_c$ increased, and that evidence is sound only while fewer than $t$ guardians are compromised. With $t$ or more, an adversary manufactures attestations for locks that never occurred, $S$ grows without any $R_c$ growing, and the theorem fails --- not because the reserve was mismanaged, but because the protocol was misinformed about it.
 \end{proof}
 
 \begin{corollary}[Redeemability]
-Every holder of zUSDT can redeem at par, provided the reserve program is live and the reserve vault is not encumbered.
+Every holder of zUSDT can redeem at par, provided the reserve program is live, some leg holds sufficient unencumbered balance, and --- for redemption on $C^{*}$ --- at least $t$ guardians are available.
 \end{corollary}
 
-The two provisos in the corollary are not incidental, and Section \ref{sec:risk} treats them.
+The provisos in the corollary are not incidental, and Section \ref{sec:risk} treats them.
 
-\subsection{Why Same-Chain Reserving Matters}
+\subsection{What Multi-Chain Reserving Costs}
+\label{sec:bridgecost}
 
-An alternative construction would hold the reserve on Solana and issue the shielded token on a separate chain. We reject it.
+The previous revision of this paper held the reserve solely on Solana and rejected any construction placing reserve and token on different chains. The following proposition was the argument for that position. It is reproduced unaltered, because it is correct, and because a design that changes its conclusion while quietly discarding the reasoning that opposed it is not one a reader can audit.
 
 \begin{proposition}[Bridge Degradation of Full Reserving]
+\label{prop:bridge}
 If reserve and token reside on different chains, then the reserve backing is conditional on the bridge securing the correspondence, and the effective guarantee is $\min(\text{reserve solvency}, \text{bridge integrity})$ rather than reserve solvency alone.
 \end{proposition}
 
 \begin{proof}
-A holder on the token chain possesses no direct claim on assets held on the reserve chain; the claim is mediated by the mechanism asserting the correspondence. If that mechanism can be induced to mint without a corresponding deposit, or to release reserves without a corresponding burn, then $S \leq R$ fails despite the reserve program being correct. The guarantee is therefore the weaker of the two.
+A holder on the token chain possesses no direct claim on assets held on the reserve chain; the claim is mediated by the mechanism asserting the correspondence. If that mechanism can be induced to mint without a corresponding deposit, or to release reserves without a corresponding burn, then the invariant fails despite the reserve program being correct. The guarantee is therefore the weaker of the two.
 \end{proof}
 
-Cross-chain mechanisms have historically been the least reliable component of deployed systems, with individual failures in the hundreds of millions of dollars. Since a stablecoin's sole product is the credibility of its backing, accepting the weaker guarantee is an unattractive trade. Placing reserve and token on one chain removes the term entirely: a zUSDT holder's claim is enforced by the same runtime that enforces the reserve's custody.
+Cross-chain mechanisms have historically been the least reliable component of deployed systems, with individual failures in the hundreds of millions of dollars --- Ronin, Poly Network, BNB Bridge and Wormhole among them. Nothing in the intervening period has made them safer, and we do not claim otherwise.
+
+What changed is the weighting, not the analysis. A reserve confined to $c_0$ is bounded by the issuer's deployment on $c_0$, which places the protocol's capacity outside its own control and, in the limit, makes the design unusable at scale for reasons wholly unrelated to its cryptography. Against that, Proposition \ref{prop:bridge} costs a term that is bounded, quantifiable, and confined to the legs that incur it.
+
+\begin{corollary}[Per-Leg Guarantees]
+\label{cor:perleg}
+The guarantee on $c_0$ is reserve solvency alone, since mint and custody are enforced by one runtime and no attesting party stands between them. The guarantee on each $c \in C^{*}$ is $\min(\text{reserve solvency}, \text{guardian threshold integrity})$. The guarantee for a holder is that of the weakest leg against which supply has been minted, since zUSDT is fungible across legs.
+\end{corollary}
+
+The final clause deserves emphasis rather than a footnote. Fungibility means a holder cannot elect to hold only the $c_0$-backed portion of supply: one unit of zUSDT is a claim on the aggregate, so the guardian threshold bounds every holder's guarantee, not merely that of holders who bridged. A holder wishing to avoid the term entirely must hold USDT on $c_0$ directly and forgo shielding, which is a real cost and not one we can design away. Segregated per-leg claims would avoid it at the price of fragmenting the anonymity set, which would defeat the purpose of the pool; we regard that trade as clearly worse, but it is a trade and not a free choice.
 
 %==============================================================================
 \section{Confidential Transfers}
@@ -179,23 +213,31 @@ The pool boundary is transparent by necessity: assets entering and leaving are v
 
 Full reserving is only as useful as it is verifiable, and shielding complicates verification: if balances are hidden, an observer cannot sum them to confirm that supply matches reserves.
 
-The resolution is that shielding hides the \emph{distribution} of zUSDT, not its \emph{quantity}. Three quantities are directly readable from Solana state:
+The resolution is that shielding hides the \emph{distribution} of zUSDT, not its \emph{quantity}. The following quantities are directly readable from public state:
 
 \begin{itemize}
-    \item $R$, the USDT balance of the reserve vault
+    \item $R_{c_0}$, the USDT balance of the reserve vault on Solana
+    \item $R_c$ for each $c \in C^{*}$, the balance of that chain's lock contract, readable from that chain
     \item $S$, the total supply recorded on the zUSDT mint
     \item $P$, the quantity of zUSDT held by the shielded pool
 \end{itemize}
 
 \begin{proposition}[Public Verifiability Under Shielding]
+\label{prop:verif}
 Reserve adequacy is verifiable from public state alone, without any information about individual holdings.
 \end{proposition}
 
 \begin{proof}
-The mint account records total supply $S$ irrespective of how it is distributed, and the reserve vault's balance $R$ is a public token account balance. Theorem \ref{thm:invariant} requires only $S \leq R$, which is decidable from these two values. The pool holds $P \leq S$ of the supply as shielded notes; the partition of $P$ among noteholders is hidden, but $P$ itself is the pool's public token balance. Since the invariant is a statement about aggregates, hiding the partition does not impair it.
+The mint account records total supply $S$ irrespective of how it is distributed, and each $R_c$ is a public balance on its own chain. Theorem \ref{thm:invariant} requires only $S \leq \sum_c R_c$, which is decidable from these values. The pool holds $P \leq S$ of the supply as shielded notes; the partition of $P$ among noteholders is hidden, but $P$ itself is the pool's public token balance. Since the invariant is a statement about aggregates, hiding the partition does not impair it.
 \end{proof}
 
-Consequently anyone can verify reserve adequacy continuously and without cooperation, which compares favourably with attested off-chain reserves. No claim is made about USDT's own backing, which is Tether's to evidence; zUSDT's guarantee is that it is fully backed \emph{by USDT}, and inherits whatever USDT is worth.
+Consequently anyone can verify reserve adequacy continuously and without cooperation, which compares favourably with attested off-chain reserves. Two qualifications apply to the multi-chain case and did not apply to its predecessor.
+
+First, verification now requires reading $|C|$ chains rather than one, so a verifier's view is only as current as its least fresh source. The quantities are not jointly observable at an instant, and a verifier reading $R_c$ before a lock and $S$ after the corresponding mint will compute a spurious deficit. Adequacy should therefore be evaluated against finalised state on every chain, and transient apparent deficits near a cross-chain operation are expected rather than diagnostic.
+
+Second, and more seriously, public verifiability of the \emph{balances} does not establish that each lock was matched by an honest attestation. An adversary controlling $t$ guardians inflates $S$ without inflating any $R_c$, and this is visible --- it manifests precisely as $S > \sum_c R_c$ --- but it is detected after the fact rather than prevented. Proposition \ref{prop:verif} therefore delivers detection, not prevention, on the attested legs, and the value of that detection depends on monitoring that reacts within blocks rather than days.
+
+No claim is made about USDT's own backing, which is Tether's to evidence; zUSDT's guarantee is that it is fully backed \emph{by USDT}, and inherits whatever USDT is worth.
 
 %==============================================================================
 \section{Risk Analysis}
@@ -204,15 +246,28 @@ Consequently anyone can verify reserve adequacy continuously and without coopera
 
 Full reserving eliminates peg-mechanism risk. It does not eliminate risk, and we enumerate what remains rather than allow the absence of a stabilisation mechanism to suggest the absence of exposure.
 
+\subsection{Guardian Compromise}
+\label{sec:guardian}
+
+The attested legs introduce a failure mode the single-chain design did not have, and it is the one a reader should weigh most heavily.
+
+\begin{remark}[Threshold compromise]
+An adversary controlling $t$ of $n$ guardians can attest to locks that did not occur and mint zUSDT without backing, or authorise release of locked USDT without a corresponding burn. Either breaks the aggregate invariant while every individual program remains correct. The exposure is bounded by aggregate reserves and is detectable, since it manifests as $S > \sum_c R_c$ in public state, but it is not preventable by the reserve program, which cannot distinguish a valid threshold signature from an illegitimate one.
+\end{remark}
+
+This is the concrete content of Proposition \ref{prop:bridge} for this construction, and it is why the guardian set's composition, key management, and threshold are protocol parameters rather than operational details. Guardians should be independently operated, should not share a hosting provider or jurisdiction, and should hold shares generated under distributed key generation so that no single party ever possesses the composite key. None of this reduces the assumption below ``fewer than $t$ are compromised''; it makes that assumption harder to violate without making it unnecessary.
+
+Mitigations that bound the damage rather than the probability are also available: per-epoch mint caps on each attested leg, so that a compromise cannot be monetised faster than monitoring can react; a delay between attestation and mint for amounts above a threshold, creating a window in which an illegitimate attestation can be challenged; and a distinguished veto key able to halt minting without being able to authorise it. We regard the first two as necessary at scale.
+
 \subsection{Issuer Freeze}
 
 USDT is centrally administered, and Tether can freeze balances at arbitrary addresses; it has done so many times at law-enforcement request.
 
 \begin{remark}[Unavoidable exposure]
-If the reserve vault is frozen, redemption fails and zUSDT becomes unbacked in practice while remaining fully backed on paper. No design wrapping a centrally-administered asset can prevent this, and we do not claim to. It is the principal risk of the construction, and it is strictly larger than for a holder of USDT directly, who is exposed to a freeze of their own address alone rather than to a freeze of a shared reserve. Holders requiring censorship resistance should not regard zUSDT as providing it; the confidentiality zUSDT offers is against observers, not against the issuer.
+If a reserve vault or lock contract is frozen, redemption against that leg fails and zUSDT becomes partially unbacked in practice while remaining fully backed on paper. No design wrapping a centrally-administered asset can prevent this, and we do not claim to. It is a principal risk of the construction, and it is strictly larger than for a holder of USDT directly, who is exposed to a freeze of their own address alone rather than to a freeze of a shared reserve. Holders requiring censorship resistance should not regard zUSDT as providing it; the confidentiality zUSDT offers is against observers, not against the issuer.
 \end{remark}
 
-A partial mitigation is to shard the reserve across multiple vaults so that a single freeze impairs only a fraction of redemption capacity. This reduces the blast radius without addressing the underlying dependency.
+The multi-chain reserve genuinely improves this exposure, and it is the one respect in which it is safer than its predecessor rather than merely more capacious. A freeze is issued per chain and per address, so a freeze on one leg impairs $R_c$ for that leg alone, leaving $\sum_{c' \neq c} R_{c'}$ redeemable. Distributing the reserve across jurisdictionally and technically distinct chains therefore converts a single point of failure into a partial one, and sharding within each leg reduces the blast radius further. Neither addresses the underlying dependency on the issuer's discretion.
 
 \subsection{Program Risk}
 
@@ -227,29 +282,37 @@ Full backing bounds the redemption value of zUSDT but not its market price. If r
 \begin{table}[H]
 \centering
 \caption{Failure Modes by Design}
-\begin{tabular}{@{}llll@{}}
+\begin{tabular}{@{}lllll@{}}
 \toprule
-\textbf{Failure mode} & \textbf{UST (algorithmic)} & \textbf{USDB (fractional)} & \textbf{zUSDT} \\ \midrule
-Reflexive death spiral & fatal & mitigated & absent \\
-Absorber token collapse & fatal & partial floor & absent \\
-Bridge compromise & n/a & n/a & absent \\
-Issuer freeze & n/a & partial & \textbf{present} \\
-Program defect & present & present & \textbf{present} \\
-Secondary depeg & fatal & possible & possible, arbitrageable \\ \bottomrule
+\textbf{Failure mode} & \textbf{UST} & \textbf{USDB} & \textbf{zUSDT ($c_0$ only)} & \textbf{zUSDT (multi-chain)} \\ \midrule
+Reflexive death spiral & fatal & mitigated & absent & absent \\
+Absorber token collapse & fatal & partial floor & absent & absent \\
+Guardian compromise & n/a & n/a & absent & \textbf{present} \\
+Issuer freeze & n/a & partial & \textbf{total} & \textbf{partial, per leg} \\
+Program defect & present & present & \textbf{present} & \textbf{present, wider} \\
+Redemption liveness & n/a & present & program only & program + guardians \\
+Secondary depeg & fatal & possible & arbitrageable & arbitrageable \\ \bottomrule
 \end{tabular}
 \end{table}
 
-zUSDT removes three failure classes and concentrates its exposure in two: the issuer's discretion, and the correctness of one program. Both are auditable and bounded in a way that reflexive collapse is not.
+The fourth and fifth columns are the honest summary of this revision. Multi-chain reserving is not a free improvement: it adds guardian compromise as a new failure class and widens the program-defect surface from one contract to $|C|$ of them. It improves exactly one row --- issuer freeze, which ceases to be total --- and buys reserve capacity that the single-chain design could not obtain at any price. We think the trade is right at scale and wrong at small scale, which is why the roadmap in Section \ref{sec:conclusion} begins on $c_0$ alone.
+
+zUSDT removes two failure classes outright and concentrates its exposure in four: the issuer's discretion, the correctness of several programs, the guardian threshold, and redemption liveness. All are auditable and bounded in a way that reflexive collapse is not.
 
 %==============================================================================
 \section{Conclusion}
+\label{sec:conclusion}
 %==============================================================================
 
-zUSDT is intentionally the least interesting stablecoin design available. It has no stabilisation mechanism, no absorber token, no collateral ratio, and no monetary policy. Each unit is backed by one unit of native USDT held on the same chain, and is redeemable for it. What it adds is confidentiality: holders transact through the Rand shielded pool without revealing counterparties or amounts, while the reserve remains continuously and publicly auditable.
+zUSDT is intentionally the least interesting stablecoin design available. It has no stabilisation mechanism, no absorber token, no collateral ratio, and no monetary policy. Each unit is backed by one unit of USDT immobilised on one of several chains, and is redeemable for it. What it adds is confidentiality: holders transact through the Rand shielded pool without revealing counterparties or amounts, while the reserve remains continuously and publicly auditable.
 
-We regard the absence of mechanism as the design's principal merit. Stablecoin failures have overwhelmingly been failures of mechanism rather than of custody, and a peg requiring active defence is one that can be attacked. The costs are real and stated: no yield, no capital efficiency, and exposure to Tether's discretion over the reserve.
+We regard the absence of mechanism as the design's principal merit. Stablecoin failures have overwhelmingly been failures of mechanism rather than of custody, and a peg requiring active defence is one that can be attacked. The costs are real and stated: no yield, no capital efficiency, exposure to Tether's discretion over each leg, and --- new in this revision --- dependence on a threshold guardian set for every leg but Solana.
 
-Future work includes reserve sharding to limit freeze exposure, formal verification of the mint and redeem paths, and extension to native USDC on identical terms.
+That last cost is a genuine regression against the previous design, and we prefer to name it as such rather than present the revision as a strict improvement. The previous design's guarantee was reserve solvency alone; this one's is $\min(\text{reserve solvency}, \text{guardian threshold integrity})$, and by Corollary \ref{cor:perleg} that weaker guarantee reaches every holder through fungibility rather than only those who used an attested leg. We accept it because a reserve that cannot grow beyond one chain's issuance is not a reserve that can serve the use cases this paper opens with, and because the term is bounded, detectable, and reducible by measures set out in Section \ref{sec:guardian}. A reader who weighs custody risk more heavily than capacity should prefer the previous design, and we think that reader is being reasonable rather than mistaken.
+
+Deployment should therefore be staged rather than simultaneous: $c_0$ alone until the shielded pool's anonymity set justifies the capacity, then one attested leg with per-epoch mint caps and a challenge delay, then the remainder. Sequencing this way keeps guardian exposure at zero for exactly as long as capacity is not the binding constraint.
+
+Future work includes reserve sharding within each leg to limit freeze exposure, formal verification of the mint, redeem, and attestation-verification paths, distributed key generation and periodic proactive resharing for the guardian set, replacement of the threshold attestation by a light-client or succinct proof of the source-chain lock --- which would eliminate the guardian assumption rather than merely bound it, and is the correct long-term target --- and extension to USDC on identical terms.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{9}

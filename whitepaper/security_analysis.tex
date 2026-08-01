@@ -264,11 +264,13 @@ This theorem is deliberately narrower than the corresponding claim in earlier ve
 Rand runs no consensus protocol. This section states what is assumed of Solana and what fails if the assumption fails.
 
 \begin{assumption}[Solana Finality]
+\label{ass:finality}
 \label{asm:finality}
 A transaction finalised by Solana is never reordered or reverted.
 \end{assumption}
 
 \begin{assumption}[Solana Liveness]
+\label{ass:liveness}
 Submitted transactions paying sufficient priority fee are eventually included.
 \end{assumption}
 
@@ -340,11 +342,21 @@ Fee amount & anyone & fee quantisation to reduce distinguishability \\
 Network origin & relayer & anonymising transport \\
 Anonymity set size & anyone & none; improves only with adoption \\
 Note discovery scan & indexer, if delegated & self-scan; fuzzy message detection \\
+\textbf{Full witness} & \textbf{prover, if delegated} & \textbf{self-prove; blinded delegation (future)} \\
 Deposit and withdrawal & anyone & timing separation, amount quantisation \\ \bottomrule
 \end{tabular}
 \end{table}
 
-Two deserve emphasis. First, transfers are formally private within an anonymity set whose size the protocol cannot guarantee; a transfer in a pool with few active participants is identifiable in practice irrespective of the cryptography, and early deployments are therefore weakest precisely when users may assume otherwise. Second, deposits and withdrawals are transparent at the pool boundary, so correlating an entry with a later exit of similar magnitude and timing remains the most effective attack against the system. Neither is a defect in the proof system, and neither is fixed by strengthening it.
+\begin{theorem}[Witness Disclosure Under Delegation]
+\label{thm:witness-sec}
+A prover supplied with the witness for a transfer learns the sender's spend authority, the recipient, and the amount, irrespective of the zero-knowledge property of the resulting argument.
+\end{theorem}
+
+\begin{proof}
+Zero-knowledge bounds what the argument $\pi$ reveals to a verifier holding only the statement $x$; it constrains nothing about a party holding the witness $w$ directly. Since $w$ comprises the spent notes' openings, the authorising key material, and the output values and recipients, a prover evaluating the circuit on $w$ reads exactly these quantities.
+\end{proof}
+
+Three leaks deserve emphasis. First, transfers are formally private within an anonymity set whose size the protocol cannot guarantee; a transfer in a pool with few active participants is identifiable in practice irrespective of the cryptography, and early deployments are therefore weakest precisely when users may assume otherwise. Second, deposits and withdrawals are transparent at the pool boundary, so correlating an entry with a later exit of similar magnitude and timing remains the most effective attack against the system. Third, delegated proving discloses everything the circuit conceals, to a party of the user's choosing --- a strictly different threat model from the others in this table, since it is opt-in and identifiable rather than ambient, but the strongest disclosure available to any single party in the system. None is a defect in the proof system, and none is fixed by strengthening it.
 
 %==============================================================================
 \section{Attack Resistance Analysis}
@@ -384,26 +396,34 @@ where $m$ is adversary-controlled nodes and $N$ is total network size.
 
 \subsubsection{Sybil Attack}
 
-\begin{theorem}[Sybil Resistance]
-Stake-weighted consensus provides Sybil resistance:
+\begin{theorem}[Inherited Sybil Resistance]
+Rand implements no Sybil-resistance mechanism. Consensus participation is Solana's, and its stake-weighted leader schedule provides
 \[
 \text{Power}(k \text{ identities}) = k \cdot \frac{S}{k} = S = \text{Power}(1 \text{ identity})
 \]
-Splitting stake provides no benefit.
+so splitting stake provides no benefit. Rand's own roles --- relaying and proving --- are deliberately Sybil-indifferent: both are permissionless and unbonded, and operating $k$ identities confers no advantage over operating one, since the nullifier set admits exactly one submission per batch regardless of who submits it.
 \end{theorem}
+
+\begin{remark}[Correction to earlier revisions]
+Previous versions of this document stated Sybil resistance as a property Rand established through stake-weighted consensus of its own. That was an artefact of the superseded Layer 1 design. Rand operates no validator set and holds no stake; the property is inherited, and it is bounded by Assumptions \ref{ass:finality} and \ref{ass:liveness} rather than by anything Rand enforces.
+\end{remark}
 
 \subsection{Transaction-Level Attacks}
 
 \subsubsection{Front-Running / MEV}
 
 \begin{theorem}[Front-Running Mitigation]
-Private transactions eliminate front-running because transaction details are hidden until execution.
+A shielded transfer's contents are concealed until after inclusion, so an adversary observing the mempool cannot condition an ordering strategy on the transfer's sender, recipient, or amount.
 \end{theorem}
+
+\begin{remark}[The claim is conditional, not absolute]
+Earlier revisions asserted that private transactions \emph{eliminate} front-running. That is too strong. What is concealed is the transfer's contents, not its existence, its asset identifier, its fee, or its timing --- and an adversary may still order or censor on those. Where proving is delegated, the prover additionally holds the witness by Theorem \ref{thm:witness-sec} before submission, and is therefore in precisely the position a front-runner would wish to occupy. Rand does not order its own transactions and cannot exclude ordering strategies available to Solana's leader. The honest statement is mitigation, bounded by what remains observable.
+\end{remark}
 
 \subsubsection{Double-Spend Attack}
 
 \begin{theorem}[Double-Spend Prevention]
-The combination of BFT finality and nullifier uniqueness prevents double-spending.
+The combination of Solana's finality, per Assumption \ref{ass:finality}, and nullifier uniqueness prevents double-spending. Nullifier accounts are created on spend, and account creation is idempotent within Solana's runtime, so a second spend of the same note fails at account creation rather than at proof verification.
 \end{theorem}
 
 \subsection{Attack Resistance Summary}

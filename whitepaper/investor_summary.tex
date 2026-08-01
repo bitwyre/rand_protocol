@@ -85,6 +85,8 @@ Existing options all fail for a business holding USDT on Solana:
 
 Every option above asks a business to move assets somewhere else. Bridges are the single largest category of loss in crypto history --- Ronin \$624M, Poly \$611M, BNB Bridge \$570M, Wormhole \$325M. Asking a treasurer to bridge their stablecoins to obtain privacy is asking them to accept a worse risk than the one they are solving.
 
+\textbf{Where this argument now applies to us.} Transacting on Rand requires no bridge: a holder of USDT on Solana shields it and transacts, and nothing leaves the chain. But the zUSDT reserve is drawn from several chains, so USDT locked on Ethereum or Tron does depend on a threshold attestation. We accept that term deliberately --- a reserve capped by one chain's issuance cannot serve treasury-scale demand --- and we bound it with per-epoch mint caps, challenge delays, and independently operated guardians. An investor should read the paragraph above as applying, in part, to us: we consider the exposure worth the capacity, and we would rather say so than let a competitive slide imply we carry none.
+
 \subsection{Problem 3: Tomorrow's Quantum Computers Read Today's Ledger}
 
 Encrypted data published to a blockchain stays there permanently. An adversary can record it now and decrypt it once quantum computers mature --- "harvest now, decrypt later." Privacy systems using conventional encryption are therefore not private in the long run; they are merely delayed.
@@ -192,13 +194,14 @@ Terra's UST collapsed in May 2022 --- \$60B destroyed, LUNA supply inflated 18{,
 
 \subsection{zUSDT's Design: No Mechanism At All}
 
-zUSDT is fully reserved. Every unit is backed by one unit of native USDT held in a Solana program, redeemable on demand.
+zUSDT is fully reserved. Every unit is backed by one unit of USDT locked on Ethereum, Tron, BNB Chain or Solana, redeemable on demand.
 
 \begin{itemize}[leftmargin=*]
-    \item \textbf{Backing:} 100\% native USDT. Not 90\%, not fractional, not partly in our own token.
-    \item \textbf{Reserve location:} the same chain as the token --- no bridge between the two
-    \item \textbf{Verification:} anyone can compare reserves to supply on-chain, continuously
+    \item \textbf{Backing:} 100\% USDT. Not 90\%, not fractional, not partly in our own token.
+    \item \textbf{Reserve location:} the chains USDT is already issued on, so capacity does not depend on Tether deploying where we need it
+    \item \textbf{Verification:} anyone can compare aggregate reserves to supply on-chain, continuously
     \item \textbf{Privacy:} transacts confidentially through the Rand pool
+    \item \textbf{The cost:} every leg but Solana depends on a threshold guardian set. A compromise of that threshold could mint unbacked supply --- detectable in public state, but not preventable by the reserve program
 \end{itemize}
 
 \textbf{What it does not have, deliberately:} no collateral ratio to manage, no absorber token to dilute, no redemption rate limits, no monetary policy. A fully-reserved token cannot enter a death spiral, because there is no reflexive loop to spiral.
@@ -266,12 +269,14 @@ Hides amounts & Yes & Yes & Yes & Yes \\
 Hides participants & Yes & \textbf{No} & Yes & Yes \\
 Native USDT/USDC & \textbf{No} & \textbf{No} & \textbf{Bridged} & \textbf{Yes} \\
 Solana speed & \textbf{No} & Yes & \textbf{No} & Yes \\
-No bridge required & \textbf{No} & Yes & \textbf{No} & Yes \\
+No bridge to transact & \textbf{No} & Yes & \textbf{No} & Yes \\
 PQ confidentiality & \textbf{No} & \textbf{No} & \textbf{No} & Yes \\ \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Our position:} the only way to transact native Solana USDT and USDC with full confidentiality, without bridging and without leaving the chain the liquidity is on.
+The fifth row is stated precisely. Transacting on Rand requires no bridge, which is the row's claim and remains true. Minting zUSDT against reserves held on another chain does involve one, and we do not claim otherwise elsewhere in this document.
+
+\textbf{Our position:} the only way to transact native Solana USDT and USDC with full confidentiality, without bridging to transact and without leaving the chain the liquidity is on.
 
 %==============================================================================
 \section{Business Model}
@@ -406,7 +411,7 @@ SHRUGG market cap & \$50M+ & \$250M+ & \$750M+ \\ \bottomrule
 
 \begin{enumerate}[leftmargin=*]
     \item \textbf{We start where the liquidity is.} Competitors must attract stablecoin issuers, validators, and liquidity to a new chain before being useful. Native USDT and USDC are already on Solana.
-    \item \textbf{No bridge.} The largest losses in crypto are bridge failures. Reserve and token share a chain, so there is no bridge to attack.
+    \item \textbf{No bridge in the hot path.} Shielding, transacting, and unshielding on Solana touch no bridge at all. The bridge exists only where reserves are sourced from another chain, which is a mint-time dependency rather than a per-transaction one, and it is capped and delayed rather than unbounded.
     \item \textbf{Structural token demand.} Every confidential transfer must buy SHRUGG to pay a relayer. Demand tracks usage, not emissions.
     \item \textbf{Honest post-quantum positioning.} We are post-quantum where it is irreversible and explicit about where we are not. That distinction is defensible under scrutiny; blanket claims are not.
     \item \textbf{Small surface.} Three programs and a fee token. No consensus protocol, no validator set, no staking, no stablecoin peg mechanism --- each an entire class of failure we do not carry.
