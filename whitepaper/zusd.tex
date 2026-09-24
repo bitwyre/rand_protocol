@@ -1,0 +1,352 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\hypersetup{hidelinks}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{float}
+\geometry{margin=1in}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{\textbf{zUSD: A Fully-Reserved Shielded Dollar on Rand}\\[0.5em]
+\large Confidential Stablecoin Transfers Without Peg Risk,\\over a Multi-Chain, Multi-Issuer Locked Reserve}
+
+\author{Dendi Suhubdy\\
+Bitwyre Research\\
+\texttt{dendi@bitwyre.com}
+\and
+Anish Mohammed\\
+Zeroknowledge Consulting\\
+\texttt{anishmohammed@proton.me}}
+
+\date{September 2026 \\ \small (Supersedes \emph{zUSDT}, December 2025, revised August 2026; describes the design as deployed on Rand chain 14)}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present zUSD, a shielded dollar circulating on the Rand protocol. zUSD is fully reserved: each unit is backed one-to-one by a dollar stablecoin held in a custody contract on the chain where that stablecoin is natively issued, and is redeemable for any such coin on demand. It is deliberately not an algorithmic or fractional stablecoin. Because backing is complete, zUSD has no reflexive dependence on the price of any volatile asset, and consequently no death-spiral surface of the kind that destroyed Terra's UST.
+
+zUSD departs from its predecessor, zUSDT, in three ways, each a decision the code now embodies. First, the token lives on Rand rather than on Solana: Rand is a shielded ledger, so zUSD is a shielded note from the moment it is minted and there is no transparent form to shield. Second, the reserve spans two issuers as well as several chains: one zUSD is backed by a set of seven \emph{backings}, USDT and USDC on Ethereum, BNB Smart Chain and Solana and USDT on Tron, and a holder may redeem to any of them. Third, every leg is an attested leg. Rand issues no stablecoin natively, so there is no chain $c_0$ on which mint and custody share a runtime; the guarantee on every unit is $\min(\text{reserve solvency}, \text{guardian threshold integrity})$, and the guardian threshold is now dual: five of six ECDSA signatures and five of six post-quantum (Dilithium2) co-signatures.
+
+We restate the reserve invariant for this setting, $S = \sum_b L_b$ with equality rather than inequality, and show that it is enforced by construction in one ledger function rather than argued across chains. We give the per-backing statement of what is guaranteed, including the new risk that pooling two issuers introduces, and we set out the loss-bounding mechanisms the deployment carries: a daily mint cap per backing, a pause key that can only pause, a forward bound on block time, and release caps on the custody contracts. We are explicit about what is not yet in place: independent guardian operators, rotation of the post-quantum set, and a proof of reserves a reader can check without trusting the project's own explorer.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+Stablecoins carry the majority of settlement volume on public chains, and USDT and USDC circulate as native issuances on Ethereum, Tron, BNB Smart Chain and Solana. They are entirely transparent: every balance and every transfer is public. For payroll, treasury management, supplier settlement, or any activity whose counterparties and magnitudes are commercially sensitive, this transparency is disqualifying.
+
+zUSD addresses precisely this gap and nothing else. It is a shielded wrapper: lock a dollar stablecoin on its home chain, receive zUSD on Rand, transact confidentially, redeem for a dollar stablecoin. The peg is maintained by full reserving rather than by mechanism.
+
+\subsection{Why the Token Lives on Rand}
+
+The previous paper placed zUSDT on Solana as an SPL token and obtained confidentiality by depositing it into the Rand shielded pool, which at that time was described as a Solana program. Rand has since become a chain of its own: a ledger whose only value-bearing objects are shielded notes, with a post-quantum note encryption (ML-KEM-768) and STARK proofs of every spend \cite{rand,randimpl}. Placing the token there removes an entire layer of the earlier design. There is no transparent SPL balance, no shield and unshield operations, and no pool boundary inside the token's own chain: a zUSD note is created shielded by the mint and destroyed shielded by the burn, and the only public edges are the custody contracts on the source chains.
+
+It also changes what ``the reserve'' can mean. Rand issues no stablecoin, so there is no chain on which the token and its custody share a runtime. Every unit of zUSD is minted against an attestation that value was locked elsewhere. The previous paper's Proposition 2.8, that an attested leg yields $\min(\text{reserve solvency}, \text{attestation integrity})$, therefore applies to the whole supply and not to a fraction of it. We restate it as Proposition \ref{prop:bridge} and accept it, for the reason the previous revision gave: capacity that does not depend on any single issuer's deployment decisions.
+
+\subsection{Why the Reserve Spans Two Issuers}
+
+USDT and USDC are administered by different issuers with different freeze policies, different jurisdictions and different histories. A reserve confined to one of them inherits that issuer's discretion in full. zUSD therefore accepts both, in the same token, and lets a holder redeem to whichever is convenient. The cost is stated in Corollary \ref{cor:perbacking}: the coins are fungible into and out of zUSD at par, so a discount on any one of them is borne by every holder. We regard this as the right trade for a payments token and the wrong one for a savings instrument, and we say so rather than let a single ticker imply a single risk.
+
+\subsection{What This Design Deliberately Excludes}
+
+An earlier Bitwyre Research design, USDB, proposed a fractional-algorithmic stablecoin backed partly by hard collateral and partly by volatile protocol tokens. That design was set aside in favour of zUSDT, and the argument is unchanged here. A fractional stablecoin must defend its peg because its backing can fall below its liabilities; every mechanism in such a design exists to manage that possibility. The defences are ingenious and, we believe, sound; they are also unnecessary if backing is complete. Terra's UST failed not because its stabilisation mechanism was poorly designed but because the mechanism was load-bearing at all \cite{terra}.
+
+\begin{remark}[On yield]
+Full reserving and yield are mutually exclusive at the protocol level. A reserve that is lent, staked, or invested is not fully reserved, whatever the nominal collateral ratio. zUSD pays no yield, and any claim to the contrary would indicate that the reserve had been deployed.
+\end{remark}
+
+\subsection{Contributions}
+
+\begin{itemize}
+    \item A fully-reserved shielded stablecoin on a shielded ledger, over a reserve distributed across four chains and two issuers, as deployed on Rand chain 14 with custody contracts on the Ethereum, BNB Smart Chain, Tron and Solana mainnets.
+    \item The reserve invariant stated as an equality, $S = \sum_b L_b$, and enforced by construction in a single ledger function rather than across chains; and the statement of the two conditions, replay exclusion and a dual guardian threshold, under which it holds.
+    \item A per-backing account of what is guaranteed, including the pooled-issuer risk that the predecessor did not have.
+    \item The loss-bounding mechanisms the deployment carries, with their limits: a per-backing daily mint cap, a pause key, a forward bound on block time, and source-side release caps.
+    \item An honest account of the proof of reserves as it stands: verifiable in principle from four chains and the Rand ledger, presented today through the project's own explorer, and not yet checkable by a reader without trusting it.
+    \item An explicit list of what remains to be done before the caps are raised, drawn from the security review of the deployment.
+\end{itemize}
+
+%==============================================================================
+\section{Design}
+\label{sec:design}
+%==============================================================================
+
+\subsection{Components}
+
+Let $\mathcal{C} = \{\text{Ethereum}, \text{BNB Smart Chain}, \text{Tron}, \text{Solana}\}$ be the source chains and $\mathcal{B}$ the set of backings, each a pair $(c, \tau)$ of a chain and a stablecoin contract on it. There is no $c_0$: Rand is the token chain and holds no reserve.
+
+\begin{table}[H]
+\centering
+\caption{System components}
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Component} & \textbf{Location} & \textbf{Function} \\ \midrule
+Custody contract & one per $c \in \mathcal{C}$, mainnet & immobilises USDT or USDC on its home chain \\
+Guardian set & off-chain, 5-of-6 ECDSA + 5-of-6 Dilithium2 & attests locks; authorises releases \\
+Token registry & Rand ledger state & records zUSD, its backings and $L_b$ \\
+Bridge module & Rand ledger & verifies attestations; mints and burns \\
+Shielded pool & Rand ledger & every zUSD balance and transfer \\
+Relayer & off-chain & delivers attestations; pays the Rand fee \\ \bottomrule
+\end{tabular}
+\end{table}
+
+The token registry holds zUSD as a \emph{bridged} token whose mint authority is the bridge itself. No key can mint zUSD: the ledger mints only on a verified attestation, and burns only inside a proved shielded transaction that names a backing to release from.
+
+Tron USDC is absent because its issuer discontinued it. zUSD itself carries eight decimals; a source coin with more is truncated at the lock, and only the truncated amount leaves the depositor's wallet.
+
+\begin{table}[t]
+\centering
+\caption{The seven backings of zUSD on chain 14}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Chain} & \textbf{Coin} & \textbf{Source decimals} & \textbf{Notes} \\ \midrule
+Ethereum & USDT & 6 & \\
+Ethereum & USDC & 6 & \\
+BNB Smart Chain & USDT & 18 & truncated to 8 on the wire \\
+BNB Smart Chain & USDC & 18 & truncated to 8 on the wire \\
+Tron & USDT & 6 & \\
+Solana & USDT & 6 & \\
+Solana & USDC & 6 & \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Mint and Redeem}
+
+\begin{definition}[Lock]
+A depositor calls the custody contract on $c$ with a coin $\tau$, an amount $n$, and the hash of a Rand shielded address. The contract immobilises $n$ and publishes a message $(c, \tau, n, \text{recipient hash}, \text{sequence})$.
+\end{definition}
+
+\begin{definition}[Mint]
+On presentation of an attestation over that message carrying at least 5 of 6 ECDSA signatures and at least 5 of 6 Dilithium2 co-signatures by the guardian set, together with the full recipient address, the Rand ledger checks that the attestation has not been consumed, that the address hashes to the message's recipient hash, that mints are not paused, and that the backing's daily cap admits $n$; it then increases $L_{(c,\tau)}$ and $S$ by $n$ in one operation and creates a shielded note of $n$ zUSD for the recipient, with a blinding derived from the attestation so that the submitter cannot alter the note.
+\end{definition}
+
+\begin{definition}[Redeem]
+A holder proves a shielded transaction that destroys $n$ zUSD and names a backing $b$ and a destination address on $b$'s chain. The ledger checks $n \leq L_b$ and that $n$ is a whole number of $b$'s release units, decreases $L_b$ and $S$ by $n$ in one operation, and records a burn message. The guardians attest the burn; the custody contract on $b$'s chain verifies the attestation and releases $n$, less a protocol fee, to the destination.
+\end{definition}
+
+There is no atomic path. Entry is lock-then-attest-then-mint, exit is burn-then-attest-then-release, and each ordering fails safe: an interrupted entry leaves a coin locked with no zUSD issued, an interrupted exit leaves zUSD destroyed with no coin released. Both leave the invariant intact and both are recoverable by replaying the attestation, which is idempotent by the replay check.
+
+\begin{remark}[Failing safe is not failing well]
+The invariant surviving an interrupted operation is a statement about solvency, not about the holder, who is out of pocket until the attestation is delivered. Since every leg is attested, redemption liveness for every holder depends on guardian availability. There is no leg on which it does not.
+\end{remark}
+
+\subsection{The Reserve Invariant}
+
+\begin{definition}[Aggregate Reserve Invariant]
+Let $L_b$ be the amount the token registry records as locked for backing $b$, and $S$ the total supply of zUSD it records. The system maintains
+\begin{equation}
+\label{eq:invariant}
+S = \sum_{b \in \mathcal{B}} L_b
+\end{equation}
+after every block.
+\end{definition}
+
+The previous paper stated $S \leq \sum_c R_c$ as an inequality between quantities on different chains. Here both sides are fields of one ledger, and the relation is an equality by construction.
+
+\begin{theorem}[Invariant Preservation]
+\label{thm:invariant}
+If the bridge module is the only path that writes $L_b$ or $S$, if mint and redeem are implemented as above, and if no attestation is honoured twice, then \eqref{eq:invariant} holds after every block, provided fewer than five of the six guardians are compromised in \emph{either} signature scheme.
+\end{theorem}
+
+\begin{proof}
+Initially $S = L_b = 0$ for all $b$. Exactly two functions of the registry touch a backing's locked field, the lock applied by a mint and the release applied by a redeem, and each moves $S$ by the same amount in the same call. A mint of $n$ against $b$ does $L_b \mathrel{+}= n$, $S \mathrel{+}= n$; a redeem does $L_b \mathrel{-}= n$, $S \mathrel{-}= n$, and is refused if $n > L_b$. A shielded transfer of zUSD alters neither. No other transition affects either field, so $S - \sum_b L_b$ is invariant at zero.
+
+What the theorem does \emph{not} say is that $L_b$ equals the balance of the custody contract on $b$'s chain. That correspondence is what the attestation asserts, and it is sound only while fewer than a quorum of guardians are compromised. With a quorum in hand, an adversary attests locks that never occurred; $L_b$ and $S$ rise together, \eqref{eq:invariant} holds, and the reserve does not. The equality is exact about the ledger's own books and conditional about the world.
+\end{proof}
+
+The dual threshold is the reason ``either'' appears in the statement. An attestation needs a quorum of both sets, so forging one requires five ECDSA keys \emph{and} five Dilithium2 keys. If the two sets are held by the same parties this is one condition wearing two hats; if they are held by different parties it is two. Section \ref{sec:guardian} says which it is today.
+
+\begin{corollary}[Redeemability]
+\label{cor:redeem}
+Every holder of zUSD can redeem at par, provided the Rand ledger is live, some backing holds sufficient locked balance, the redeem does not exceed the custody contract's per-transfer and daily release caps, and at least five guardians in each set are available.
+\end{corollary}
+
+\subsection{What Attested Reserving Costs}
+\label{sec:bridgecost}
+
+\begin{proposition}[Bridge Degradation of Full Reserving]
+\label{prop:bridge}
+If reserve and token reside on different chains, the reserve backing is conditional on the mechanism securing the correspondence, and the effective guarantee is $\min(\text{reserve solvency}, \text{attestation integrity})$ rather than reserve solvency alone.
+\end{proposition}
+
+The proposition is reproduced from the previous paper because it is correct, and because it now applies to every unit of zUSD rather than to the units minted on attested legs. A reader who weighed the previous paper's $c_0$ guarantee, reserve solvency alone for the Solana leg, should note that zUSD offers no leg with that guarantee. What it offers instead is a shielded token from the first block, a reserve that no single issuer or chain can bound, and a threshold that must be broken twice.
+
+\begin{corollary}[Per-Backing Guarantees]
+\label{cor:perbacking}
+The guarantee on every backing is $\min($reserve solvency of $b$, dual threshold integrity$)$. The guarantee for a holder is that of the weakest backing, since zUSD is fungible across backings; and it is further bounded by the weakest \emph{issuer}, since a holder cannot elect to hold only the USDC-backed or only the USDT-backed portion of supply.
+\end{corollary}
+
+The last clause is new and deserves emphasis. If one issuer's coin trades at a discount, a rational holder redeems zUSD for the other issuer's coin while it lasts, and the backing set drifts toward the discounted coin until only it remains. Nothing on the Rand side prevents this; the only limits are the custody contracts' own release caps. A design that segregated the two issuers into two tokens would avoid it at the cost of two anonymity sets, two tickers and two prices; the deployed design accepted the pooled risk in exchange for one token. We record the decision and the reasoning, and we recommend that a per-backing redemption limit or pause be added before the caps are raised, so that a run on the sound coin can be slowed while it is examined.
+
+%==============================================================================
+\section{Confidential Transfers}
+%==============================================================================
+
+zUSD has no transparent form. It is created as a shielded note, transferred by the same four-input, four-output proof that moves RAND, and destroyed by a burn inside such a proof. The asset of a transfer is a private input to the proof: an observer of the Rand ledger sees that a transfer occurred and not which asset it moved.
+
+\begin{table}[t]
+\centering
+\caption{Visibility by operation}
+\small
+\begin{tabular}{@{}lp{5.0cm}p{4.6cm}@{}}
+\toprule
+\textbf{Operation} & \textbf{Visible} & \textbf{Hidden} \\ \midrule
+Lock (source chain) & depositor, coin, amount, recipient hash & \\
+Mint (Rand) & amount, backing, recipient hash & the recipient's address, until redeemed \\
+Shielded transfer & that a transfer occurred & sender, recipient, amount, \emph{asset} \\
+Burn (Rand) & amount, backing, destination & which notes were spent \\
+Release (source chain) & destination, coin, amount & \\ \bottomrule
+\end{tabular}
+\end{table}
+
+The edges are transparent by necessity, and two consequences follow that the previous paper's pool did not have. The recipient hash in a lock is the same for every deposit to one Rand address, so deposits to a single wallet are linkable to each other on the source chain; Rand addresses have no diversifiers today. And a deposit of an unusual amount followed by a withdrawal of the same amount is one person, whatever the proof conceals in between. Anonymity derives from the pool's activity, and a shielded transfer in a sparsely used pool is identifiable in practice however sound its proof. Holders should not treat early-stage shielding as equivalent to mature shielding.
+
+Fees on Rand are paid in RAND, not in zUSD. A holder who has bridged in only zUSD cannot move or redeem it until they also hold RAND; the deployment should hand a small amount of RAND to each new recipient with its first deposit.
+
+%==============================================================================
+\section{Proof of Reserves}
+%==============================================================================
+
+Full reserving is only as useful as it is verifiable, and shielding complicates verification: if balances are hidden, an observer cannot sum them to confirm that supply matches reserves.
+
+The resolution is unchanged: shielding hides the distribution of zUSD, not its quantity. The following quantities are readable from public state:
+
+\begin{itemize}
+    \item $S$ and each $L_b$, from the Rand ledger's token registry, which every full node holds and any RPC serves.
+    \item $R_b$, the balance of coin $\tau$ held by the custody contract on chain $c$, from that chain.
+\end{itemize}
+
+\begin{proposition}[Public Verifiability Under Shielding]
+\label{prop:verif}
+Reserve adequacy is verifiable from public state alone, without any information about individual holdings, as the conjunction of $S = \sum_b L_b$ on Rand and $L_b \leq R_b$ on each source chain.
+\end{proposition}
+
+\begin{proof}
+The registry records $S$ and each $L_b$ irrespective of how the supply is distributed among notes; the partition is hidden, the totals are not. Each $R_b$ is a public contract balance. The first conjunct is the ledger's own invariant; the second is what the attestations assert and what a verifier checks independently of them.
+\end{proof}
+
+Three qualifications apply.
+
+First, verification requires reading five chains, and a verifier's view is only as current as its least fresh source. Adequacy should be evaluated against finalised state everywhere, and a transient apparent shortfall near a cross-chain operation is expected rather than diagnostic.
+
+Second, public verifiability of the balances does not establish that each lock was matched by an honest attestation. An adversary holding both quorums inflates $L_b$ and $S$ together without inflating $R_b$; this is visible, as $L_b > R_b$, but it is detected after the fact rather than prevented. The scheme delivers detection, and the value of that detection depends on monitoring that reacts within blocks rather than days.
+
+Third, and specific to the deployment as it stands: the page that presents zUSD's balance sheet today reads $S$ and each $L_b$ from the project's own explorer and compares them with each other. That is the first conjunct restated, not the second. It shows no custody contract address and fetches no $R_b$. A reader cannot yet verify reserves from that page without trusting the project; the custody addresses are published in the bridge repository's deployment records, and a checkable balance sheet reads $R_b$ from each chain and shows it beside $L_b$. We regard this as a gap to be closed, not a property to be claimed.
+
+No claim is made about USDT's or USDC's own backing, which is each issuer's to evidence; zUSD's guarantee is that it is fully backed by those coins, and inherits whatever they are worth.
+
+%==============================================================================
+\section{Risk Analysis}
+\label{sec:risk}
+%==============================================================================
+
+Full reserving eliminates peg-mechanism risk. It does not eliminate risk, and we enumerate what remains.
+
+\subsection{Guardian Compromise}
+\label{sec:guardian}
+
+Every backing is attested, so this is the failure mode a reader should weigh most heavily.
+
+\begin{remark}[Threshold compromise]
+An adversary holding a quorum of both signature sets can attest locks that did not occur and mint zUSD without backing, or authorise release of locked coins without a burn. Either breaks the correspondence between $L_b$ and $R_b$ while every program remains correct. The exposure is bounded by the mechanisms below and is detectable, but it is not preventable by the ledger, which cannot distinguish a valid quorum from an illegitimate one.
+\end{remark}
+
+The previous paper listed what a guardian set should be: independently operated, on distinct hosting and in distinct jurisdictions, with keys generated under distributed key generation. The deployment does not yet meet that description. At the time of writing all six ECDSA keys, all six Dilithium2 keys and the pause key were generated on and are held by one operator's machine, the guardians read each source chain through a single public RPC provider, and the post-quantum set and the pause key are fixed at genesis with no rotation action. The security review of the deployment records this as its principal open finding. The dual threshold therefore adds a second algorithm today and not yet a second party. Separation of operators must begin with the post-quantum keys, since those cannot be rotated without a chain restart; a rotation action is designed and should precede any transfer of the ECDSA keys to other operators.
+
+Mitigations that bound the damage rather than the probability are in place and are stated with their limits:
+
+\begin{itemize}
+    \item \textbf{A daily mint cap per backing}, 100,000 zUSD at genesis, enforced by the ledger. It is per backing and not global: seven backings allow 700,000 a day, the window is a fixed UTC day so about twice that can be minted across midnight, and a quorum may list further backings. The cap bounds the rate, not the total.
+    \item \textbf{A pause key that can only pause}, held apart from the guardian keys. It stops mints; unpausing needs the post-quantum quorum. It does not stop burns or the listing of new backings.
+    \item \textbf{A forward bound on block time}: a block more than sixty seconds past its parent is invalid, and a validator withholds its vote from a block more than fifteen seconds ahead of its clock, so a leader cannot fast-forward the cap's day boundary or a guardian rotation's grace period.
+    \item \textbf{Release caps on the custody contracts}, 100 per transfer and 1,000 per day per coin at the time of writing. These, and the amount actually in custody, are what bound loss today; the Rand-side cap is a hundred times larger and exists for the day the source caps rise.
+    \item \textbf{A challenge delay} between attestation and mint for large amounts, which the previous paper recommended, is not implemented.
+\end{itemize}
+
+\subsection{Issuer Freeze}
+
+USDT and USDC are centrally administered, and each issuer can freeze balances at arbitrary addresses.
+
+\begin{remark}[Unavoidable exposure]
+If a custody contract's balance is frozen, redemption against that backing fails and zUSD becomes partially unbacked in practice while remaining fully backed on the ledger's books. No design wrapping a centrally administered asset can prevent this. It is strictly larger than the exposure of a direct holder, who faces a freeze of their own address alone rather than of a shared reserve. The confidentiality zUSD offers is against observers, not against the issuers.
+\end{remark}
+
+Two issuers and four chains improve this exposure beyond what one issuer on several chains did. A freeze is issued per issuer, per chain and per address; a freeze on one backing impairs $L_b$ for that backing alone, and a holder redeems to another. Because the backings are pooled, a freeze does not fall on the holders who deposited the frozen coin but on whoever redeems last; that is the same pooled risk as Corollary \ref{cor:perbacking}, seen from the other side.
+
+\subsection{Program Risk}
+
+The invariant is enforced by one ledger function, which narrows the surface the previous paper worried about: there is no reserve program to defect independently of the mint. What remains are the custody contracts, one per chain, which are non-upgradeable on the EVM chains and Tron but whose administrator and pauser are a single account, and whose Solana program still has an upgrade authority; the guardian daemons, which sign on the word of one RPC provider per chain; and the ledger's own bridge module, which has had one external review and no formal verification. Each custody contract is a publicly quantified concentration of value, which argues for the current deposit caps during early operation.
+
+\subsection{Secondary Market Depeg}
+
+Full backing bounds the redemption value of zUSD but not its market price. If redemption is congested, if the daily release cap is exhausted, or if confidence in either issuer or in the guardian set falls, zUSD may trade below par while remaining fully redeemable. Arbitrage corrects this so long as redemption is open, which makes redemption liveness and the release caps monetary properties rather than merely operational ones. The pooled-issuer risk adds a case the previous paper did not have: if one coin depegs, zUSD's market price will track the cheaper coin, since that is what a redeemer receives at the margin.
+
+\subsection{Comparison}
+
+\begin{table}[t]
+\centering
+\caption{Failure modes by design}
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Failure mode} & \textbf{UST} & \textbf{USDB} & \textbf{zUSDT (multi-chain)} & \textbf{zUSD} \\ \midrule
+Reflexive death spiral & fatal & mitigated & absent & absent \\
+Absorber token collapse & fatal & partial floor & absent & absent \\
+Guardian compromise & n/a & n/a & present, attested legs & present, every unit; dual threshold \\
+Issuer freeze & n/a & partial & partial, per leg & partial, per backing and per issuer \\
+Cross-issuer contagion & n/a & n/a & absent & present \\
+Program defect & present & present & present, wider & present; one invariant, $|\mathcal{C}|$ contracts \\
+Redemption liveness & n/a & present & program + guardians & guardians, on every unit \\
+Secondary depeg & fatal & possible & arbitrageable & arbitrageable; tracks the weaker coin \\
+Post-quantum attestation & n/a & n/a & no & yes \\
+Shielded from issuance & n/a & n/a & no & yes \\ \bottomrule
+\end{tabular}
+\end{table}
+
+The last column is the honest summary. Against zUSDT, zUSD gives up the one leg that had reserve solvency alone, adds cross-issuer contagion, and puts every holder behind the guardian set. It gains a token that is shielded from its first block, a reserve no single issuer can bound, an attestation that a quantum adversary cannot forge, and an invariant enforced in one place. We think the trade is right for a payments token and say plainly that it is a trade.
+
+%==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+%==============================================================================
+
+zUSD is intentionally the least interesting stablecoin design available. It has no stabilisation mechanism, no absorber token, no collateral ratio, and no monetary policy. Each unit is backed by one unit of USDT or USDC immobilised on one of four chains, and is redeemable for any of them. What it adds is confidentiality from the moment of issuance: holders transact on a shielded ledger without revealing counterparties, amounts, or even which asset moved, while the reserve remains publicly auditable in principle.
+
+We regard the absence of mechanism as the design's principal merit. The costs are real and stated: no yield, no capital efficiency, exposure to two issuers' discretion, contagion between them, and dependence on a threshold guardian set for every unit rather than for some. That last cost is larger than the previous paper's, not smaller, and we name it as such.
+
+Deployment is therefore gated, and the gate is not traffic. Before the release caps rise: guardians held by independent operators on separate machines, each reading a second data source before signing; a rotation action for the post-quantum set and the pause key, shipped before the operators are separated; a multi-signature administrator with a delay on the custody contracts and a retired Solana upgrade authority; a global mint cap in a rolling window; a per-backing redemption limit against contagion; a balance sheet that reads custody balances from each chain; and a validator set that cannot be bought with the test faucet. Until then, the caps are the guarantee.
+
+Future work includes the challenge delay for large mints, distributed key generation and proactive resharing for both guardian sets, replacement of the threshold attestation by a light-client or succinct proof of the source-chain lock, which would remove the guardian assumption rather than bound it and is the correct long-term target, diversified addresses so that deposits to one wallet are not linkable, and a fee-payment path that does not require a new holder to obtain RAND first.
+
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+\bibitem{rand} D. Suhubdy and A. Mohammed, ``Rand: Confidential Arbitrary Computations,'' Draft 3, 2026.
+\bibitem{randimpl} D. Suhubdy and A. Mohammed, ``Rand Protocol: the implementation,'' 2026.
+\bibitem{zusdt} D. Suhubdy, ``zUSDT: A Fully-Reserved Shielded Representation of USDT on Solana,'' Bitwyre Research, December 2025, revised August 2026.
+\bibitem{terra} J. Liu, I. Makarov, and A. Schoar, ``Anatomy of a run: The Terra Luna crash,'' NBER Working Paper, 2023.
+\bibitem{hopwood} D. Hopwood et al., ``Zcash protocol specification,'' 2016.
+\end{thebibliography}
+
+\end{document}
