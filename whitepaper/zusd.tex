@@ -31,7 +31,7 @@ Anish Mohammed\\
 Zeroknowledge Consulting\\
 \texttt{anishmohammed@proton.me}}
 
-\date{September 2026 \\ \small (Supersedes \emph{zUSDT}, December 2025, revised August 2026; describes the design as deployed on Rand chain 14)}
+\date{September 2026 \\ \small (Supersedes \emph{zUSDT}, December 2025, revised August 2026; describes the design as deployed on Rand chain 15)}
 
 \begin{document}
 
@@ -40,9 +40,9 @@ Zeroknowledge Consulting\\
 \begin{abstract}
 We present zUSD, a shielded dollar circulating on the Rand protocol. zUSD is fully reserved: each unit is backed one-to-one by a dollar stablecoin held in a custody contract on the chain where that stablecoin is natively issued, and is redeemable for any such coin on demand. It is deliberately not an algorithmic or fractional stablecoin. Because backing is complete, zUSD has no reflexive dependence on the price of any volatile asset, and consequently no death-spiral surface of the kind that destroyed Terra's UST.
 
-zUSD departs from its predecessor, zUSDT, in three ways, each a decision the code now embodies. First, the token lives on Rand rather than on Solana: Rand is a shielded ledger, so zUSD is a shielded note from the moment it is minted and there is no transparent form to shield. Second, the reserve spans two issuers as well as several chains: one zUSD is backed by a set of seven \emph{backings}, USDT and USDC on Ethereum, BNB Smart Chain and Solana and USDT on Tron, and a holder may redeem to any of them. Third, every leg is an attested leg. Rand issues no stablecoin natively, so there is no chain $c_0$ on which mint and custody share a runtime; the guarantee on every unit is $\min(\text{reserve solvency}, \text{guardian threshold integrity})$, and the guardian threshold is now dual: five of six ECDSA signatures and five of six post-quantum (Dilithium2) co-signatures.
+zUSD departs from its predecessor, zUSDT, in three ways, each a decision the code now embodies. First, the token lives on Rand rather than on Solana: Rand is a shielded ledger, so zUSD is a shielded note from the moment it is minted and there is no transparent form to shield. Second, the reserve spans two issuers as well as several chains: one zUSD is backed by a set of seven \emph{backings}, USDT and USDC on Ethereum, BNB Smart Chain and Solana and USDT on Tron, and a holder may redeem to any of them. Third, every leg is an attested leg. Rand issues no stablecoin natively, so there is no chain $c_0$ on which mint and custody share a runtime; the guarantee on every unit is $\min(\text{reserve solvency}, \text{guardian threshold integrity})$, and the guardian threshold is now dual: six of eight ECDSA signatures and six of eight post-quantum (Dilithium2) co-signatures.
 
-We restate the reserve invariant for this setting, $S = \sum_b L_b$ with equality rather than inequality, and show that it is enforced by construction in one ledger function rather than argued across chains. We give the per-backing statement of what is guaranteed, including the new risk that pooling two issuers introduces, and we set out the loss-bounding mechanisms the deployment carries: a daily mint cap per backing, a pause key that can only pause, a forward bound on block time, and release caps on the custody contracts. We are explicit about what is not yet in place: independent guardian operators, rotation of the post-quantum set, and a proof of reserves a reader can check without trusting the project's own explorer.
+We restate the reserve invariant for this setting, $S = \sum_b L_b$ with equality rather than inequality, and show that it is enforced by construction in one ledger function rather than argued across chains. We give the per-backing statement of what is guaranteed, including the new risk that pooling two issuers introduces, and we set out the loss-bounding mechanisms the deployment carries: a rolling 24-hour mint cap per backing and a global one across all backings, a pause key that can only pause, a forward bound on block time, and release caps on the custody contracts. We are explicit about what is not yet in place: independent guardian operators, a timelocked multi-signature administrator on every custody contract, and a proof of reserves a reader can check without trusting the project's own explorer.
 \end{abstract}
 
 \tableofcontents
@@ -77,10 +77,10 @@ Full reserving and yield are mutually exclusive at the protocol level. A reserve
 \subsection{Contributions}
 
 \begin{itemize}
-    \item A fully-reserved shielded stablecoin on a shielded ledger, over a reserve distributed across four chains and two issuers, as deployed on Rand chain 14 with custody contracts on the Ethereum, BNB Smart Chain, Tron and Solana mainnets.
+    \item A fully-reserved shielded stablecoin on a shielded ledger, over a reserve distributed across four chains and two issuers, as deployed on Rand chain 15 with custody contracts on the Ethereum, BNB Smart Chain, Tron and Solana mainnets.
     \item The reserve invariant stated as an equality, $S = \sum_b L_b$, and enforced by construction in a single ledger function rather than across chains; and the statement of the two conditions, replay exclusion and a dual guardian threshold, under which it holds.
     \item A per-backing account of what is guaranteed, including the pooled-issuer risk that the predecessor did not have.
-    \item The loss-bounding mechanisms the deployment carries, with their limits: a per-backing daily mint cap, a pause key, a forward bound on block time, and source-side release caps.
+    \item The loss-bounding mechanisms the deployment carries, with their limits: per-backing and global rolling mint caps, a pause key, a forward bound on block time, and source-side release caps.
     \item An honest account of the proof of reserves as it stands: verifiable in principle from four chains and the Rand ledger, presented today through the project's own explorer, and not yet checkable by a reader without trusting it.
     \item An explicit list of what remains to be done before the caps are raised, drawn from the security review of the deployment.
 \end{itemize}
@@ -103,7 +103,7 @@ Let $\mathcal{C} = \{\text{Ethereum}, \text{BNB Smart Chain}, \text{Tron}, \text
 \toprule
 \textbf{Component} & \textbf{Location} & \textbf{Function} \\ \midrule
 Custody contract & one per $c \in \mathcal{C}$, mainnet & immobilises USDT or USDC on its home chain \\
-Guardian set & off-chain, 5-of-6 ECDSA + 5-of-6 Dilithium2 & attests locks; authorises releases \\
+Guardian set & off-chain, 6-of-8 ECDSA + 6-of-8 Dilithium2 & attests locks; authorises releases \\
 Token registry & Rand ledger state & records zUSD, its backings and $L_b$ \\
 Bridge module & Rand ledger & verifies attestations; mints and burns \\
 Shielded pool & Rand ledger & every zUSD balance and transfer \\
@@ -117,19 +117,22 @@ Tron USDC is absent because its issuer discontinued it. zUSD itself carries eigh
 
 \begin{table}[t]
 \centering
-\caption{The seven backings of zUSD on chain 14}
-\begin{tabular}{@{}llll@{}}
+\caption{The seven backings of zUSD on chain 15, with the amount each held locked at genesis}
+\label{tab:backings}
+\begin{tabular}{@{}lllll@{}}
 \toprule
-\textbf{Chain} & \textbf{Coin} & \textbf{Source decimals} & \textbf{Notes} \\ \midrule
-Ethereum & USDT & 6 & \\
-Ethereum & USDC & 6 & \\
-BNB Smart Chain & USDT & 18 & truncated to 8 on the wire \\
-BNB Smart Chain & USDC & 18 & truncated to 8 on the wire \\
-Tron & USDT & 6 & \\
-Solana & USDT & 6 & \\
-Solana & USDC & 6 & \\ \bottomrule
+\textbf{Chain} & \textbf{Coin} & \textbf{Source decimals} & \textbf{$L_b$ at genesis} & \textbf{Notes} \\ \midrule
+Ethereum & USDT & 6 & 0 & \\
+Ethereum & USDC & 6 & 0 & \\
+BNB Smart Chain & USDT & 18 & 0 & truncated to 8 on the wire \\
+BNB Smart Chain & USDC & 18 & 0 & truncated to 8 on the wire \\
+Tron & USDT & 6 & 9 & \\
+Solana & USDT & 6 & 1 & \\
+Solana & USDC & 6 & 0 & \\ \bottomrule
 \end{tabular}
 \end{table}
+
+Chain 15 did not start from an empty reserve. zUSD circulated on chain 14, and before Rand moved to chain 15 on 2026-09-26, 26 zUSD were burned there and released on Ethereum, BNB Smart Chain and Solana. The remaining 10 zUSD were carried into chain 15's genesis as one shielded note, with the registry, its seven backings, and the locked counters of Table \ref{tab:backings}. The genesis applies each starting $L_b$ through the same registry function a mint uses, and refuses a genesis whose zUSD notes do not sum exactly to its backings' locked amounts, so the invariant of Section \ref{sec:design} holds at block 0 with $S = 10$. Chain 15 starts at guardian set 1 and at burn sequence 7, and because the post-quantum co-signature names the Rand chain identifier, no attestation minted on chain 14 can be replayed on chain 15 \cite{randbridge}.
 
 \subsection{Mint and Redeem}
 
@@ -138,7 +141,7 @@ A depositor calls the custody contract on $c$ with a coin $\tau$, an amount $n$,
 \end{definition}
 
 \begin{definition}[Mint]
-On presentation of an attestation over that message carrying at least 5 of 6 ECDSA signatures and at least 5 of 6 Dilithium2 co-signatures by the guardian set, together with the full recipient address, the Rand ledger checks that the attestation has not been consumed, that the address hashes to the message's recipient hash, that mints are not paused, and that the backing's daily cap admits $n$; it then increases $L_{(c,\tau)}$ and $S$ by $n$ in one operation and creates a shielded note of $n$ zUSD for the recipient, with a blinding derived from the attestation so that the submitter cannot alter the note.
+On presentation of an attestation over that message carrying at least 6 of 8 ECDSA signatures and at least 6 of 8 Dilithium2 co-signatures by the guardian set, together with the full recipient address, the Rand ledger checks that the attestation has not been consumed, that the address hashes to the message's recipient hash, that mints are not paused, and that both the backing's cap and the global cap admit $n$ over the rolling 24-hour window; it then increases $L_{(c,\tau)}$ and $S$ by $n$ in one operation and creates a shielded note of $n$ zUSD for the recipient, with a blinding derived from the attestation so that the submitter cannot alter the note.
 \end{definition}
 
 \begin{definition}[Redeem]
@@ -166,20 +169,20 @@ The previous paper stated $S \leq \sum_c R_c$ as an inequality between quantitie
 
 \begin{theorem}[Invariant Preservation]
 \label{thm:invariant}
-If the bridge module is the only path that writes $L_b$ or $S$, if mint and redeem are implemented as above, and if no attestation is honoured twice, then \eqref{eq:invariant} holds after every block, provided fewer than five of the six guardians are compromised in \emph{either} signature scheme.
+If the bridge module is the only path that writes $L_b$ or $S$, if mint and redeem are implemented as above, and if no attestation is honoured twice, then \eqref{eq:invariant} holds after every block, provided fewer than six of the eight guardians are compromised in \emph{either} signature scheme.
 \end{theorem}
 
 \begin{proof}
-Initially $S = L_b = 0$ for all $b$. Exactly two functions of the registry touch a backing's locked field, the lock applied by a mint and the release applied by a redeem, and each moves $S$ by the same amount in the same call. A mint of $n$ against $b$ does $L_b \mathrel{+}= n$, $S \mathrel{+}= n$; a redeem does $L_b \mathrel{-}= n$, $S \mathrel{-}= n$, and is refused if $n > L_b$. A shielded transfer of zUSD alters neither. No other transition affects either field, so $S - \sum_b L_b$ is invariant at zero.
+At genesis $S = \sum_b L_b$: on a fresh registry both sides are zero, and on chain 15 the genesis moves each starting $L_b$ through the mint's own lock and refuses a mismatch with the genesis notes, so both sides are 10. Exactly two functions of the registry touch a backing's locked field, the lock applied by a mint and the release applied by a redeem, and each moves $S$ by the same amount in the same call. A mint of $n$ against $b$ does $L_b \mathrel{+}= n$, $S \mathrel{+}= n$; a redeem does $L_b \mathrel{-}= n$, $S \mathrel{-}= n$, and is refused if $n > L_b$. A shielded transfer of zUSD alters neither. No other transition affects either field, so $S - \sum_b L_b$ is invariant at zero.
 
 What the theorem does \emph{not} say is that $L_b$ equals the balance of the custody contract on $b$'s chain. That correspondence is what the attestation asserts, and it is sound only while fewer than a quorum of guardians are compromised. With a quorum in hand, an adversary attests locks that never occurred; $L_b$ and $S$ rise together, \eqref{eq:invariant} holds, and the reserve does not. The equality is exact about the ledger's own books and conditional about the world.
 \end{proof}
 
-The dual threshold is the reason ``either'' appears in the statement. An attestation needs a quorum of both sets, so forging one requires five ECDSA keys \emph{and} five Dilithium2 keys. If the two sets are held by the same parties this is one condition wearing two hats; if they are held by different parties it is two. Section \ref{sec:guardian} says which it is today.
+The dual threshold is the reason ``either'' appears in the statement. An attestation needs a quorum of both sets, so forging one requires six ECDSA keys \emph{and} six Dilithium2 keys. If the two sets are held by the same parties this is one condition wearing two hats; if they are held by different parties it is two. Section \ref{sec:guardian} says which it is today.
 
 \begin{corollary}[Redeemability]
 \label{cor:redeem}
-Every holder of zUSD can redeem at par, provided the Rand ledger is live, some backing holds sufficient locked balance, the redeem does not exceed the custody contract's per-transfer and daily release caps, and at least five guardians in each set are available.
+Every holder of zUSD can redeem at par, provided the Rand ledger is live, some backing holds sufficient locked balance, the redeem does not exceed the custody contract's per-transfer and daily release caps, and at least six guardians in each set are available.
 \end{corollary}
 
 \subsection{What Attested Reserving Costs}
@@ -272,15 +275,15 @@ Every backing is attested, so this is the failure mode a reader should weigh mos
 An adversary holding a quorum of both signature sets can attest locks that did not occur and mint zUSD without backing, or authorise release of locked coins without a burn. Either breaks the correspondence between $L_b$ and $R_b$ while every program remains correct. The exposure is bounded by the mechanisms below and is detectable, but it is not preventable by the ledger, which cannot distinguish a valid quorum from an illegitimate one.
 \end{remark}
 
-The previous paper listed what a guardian set should be: independently operated, on distinct hosting and in distinct jurisdictions, with keys generated under distributed key generation. The deployment does not yet meet that description. At the time of writing all six ECDSA keys, all six Dilithium2 keys and the pause key were generated on and are held by one operator's machine, the guardians read each source chain through a single public RPC provider, and the post-quantum set and the pause key are fixed at genesis with no rotation action. The security review of the deployment records this as its principal open finding. The dual threshold therefore adds a second algorithm today and not yet a second party. Separation of operators must begin with the post-quantum keys, since those cannot be rotated without a chain restart; a rotation action is designed and should precede any transfer of the ECDSA keys to other operators.
+The previous paper listed what a guardian set should be: independently operated, on distinct hosting and in distinct jurisdictions, with keys generated under distributed key generation. The deployment does not yet meet that description, though it is closer than it was. Under guardian set 0, which served until 2026-09-25, all six ECDSA keys, all six Dilithium2 keys and the pause key were held on one operator's machine. Set 1, rotated in on all five chains that day and the set chain 15 starts with, has eight guardians. Guardians 0--5 run on six separate hosts, each reading Rand through its own node; guardians 6--7 run on the operator's laptop. But the six hosts sit in one cloud account reachable by one operator key, the laptop still holds the six hosts' Dilithium2 seeds from the previous chain, and every guardian reads each source chain through the same single public RPC provider. The six-of-eight threshold is therefore stronger than the old five-of-six against a compromised host and still nominal against a compromised operator: the dual threshold adds a second algorithm today and not yet a second party. The security review of the deployment records this as its principal open finding. The obstacle that the previous revision named is gone: chain 15 carries the bridge's second rule set, under which the post-quantum set and the pause key can be rotated by a post-quantum quorum without a chain restart, so operators can now be separated one key at a time.
 
 Mitigations that bound the damage rather than the probability are in place and are stated with their limits:
 
 \begin{itemize}
-    \item \textbf{A daily mint cap per backing}, 100,000 zUSD at genesis, enforced by the ledger. It is per backing and not global: seven backings allow 700,000 a day, the window is a fixed UTC day so about twice that can be minted across midnight, and a quorum may list further backings. The cap bounds the rate, not the total.
-    \item \textbf{A pause key that can only pause}, held apart from the guardian keys. It stops mints; unpausing needs the post-quantum quorum. It does not stop burns or the listing of new backings.
+    \item \textbf{Rolling mint caps}, enforced by the ledger over a 24-hour window of block time counted in 24 hourly slots: 100,000 zUSD per backing and 4,000 zUSD globally, across every backing together. On chain 14 the cap was per backing only, over a fixed UTC day, so seven backings allowed 700,000 a day and about twice that across midnight. The rolling window removes the midnight doubling (it counts strictly, by up to one slot, never twice), and the global cap is now the binding one: listing further backings no longer raises the bound. The caps bound the rate, not the total.
+    \item \textbf{A pause key that can only pause}, held apart from the guardian keys in intent, though not yet on a machine the guardians' operator does not touch. It stops mints, and on chain 15 also the listing of new backings; unpausing needs the post-quantum quorum, and the key can be rotated by that quorum. It does not stop burns.
     \item \textbf{A forward bound on block time}: a block more than sixty seconds past its parent is invalid, and a validator withholds its vote from a block more than fifteen seconds ahead of its clock, so a leader cannot fast-forward the cap's day boundary or a guardian rotation's grace period.
-    \item \textbf{Release caps on the custody contracts}, 100 per transfer and 1,000 per day per coin at the time of writing. These, and the amount actually in custody, are what bound loss today; the Rand-side cap is a hundred times larger and exists for the day the source caps rise.
+    \item \textbf{Release caps on the custody contracts}, 100 per transfer and 1,000 per day per coin at the time of writing. These, and the amount actually in custody, are what bound loss on the release side. On the mint side the global cap of 4,000 zUSD a day is now of the same order as the source caps rather than a hundred times larger.
     \item \textbf{A challenge delay} between attestation and mint for large amounts, which the previous paper recommended, is not implemented.
 \end{itemize}
 
@@ -296,7 +299,7 @@ Two issuers and four chains improve this exposure beyond what one issuer on seve
 
 \subsection{Program Risk}
 
-The invariant is enforced by one ledger function, which narrows the surface the previous paper worried about: there is no reserve program to defect independently of the mint. What remains are the custody contracts, one per chain, which are non-upgradeable on the EVM chains and Tron but whose administrator and pauser are a single account, and whose Solana program still has an upgrade authority; the guardian daemons, which sign on the word of one RPC provider per chain; and the ledger's own bridge module, which has had one external review and no formal verification. Each custody contract is a publicly quantified concentration of value, which argues for the current deposit caps during early operation.
+The invariant is enforced by one ledger function, which narrows the surface the previous paper worried about: there is no reserve program to defect independently of the mint. What remains are the custody contracts, one per chain, which are non-upgradeable on the EVM chains and Tron and whose Solana program still has a single-key upgrade authority. On Ethereum, BNB Smart Chain and Solana the administrator and pauser are single keys. On Tron both have been multi-signature accounts since 2026-09-26 (three of five signers for the administrator, two of five for the pauser), and the administrator is being handed to a 48-hour timelock that becomes executable on 2026-09-28; the signers are still derived from one extended key, so the multi-signature is nominal until they are re-keyed on separate devices. The remaining risks are the guardian daemons, which sign on the word of one RPC provider per source chain, and the ledger's own bridge module, which has been through three external audit rounds and has no formal verification. Each custody contract is a publicly quantified concentration of value, which argues for the current deposit caps during early operation.
 
 \subsection{Secondary Market Depeg}
 
@@ -336,7 +339,7 @@ zUSD is intentionally the least interesting stablecoin design available. It has 
 
 We regard the absence of mechanism as the design's principal merit. The costs are real and stated: no yield, no capital efficiency, exposure to two issuers' discretion, contagion between them, and dependence on a threshold guardian set for every unit rather than for some. That last cost is larger than the previous paper's, not smaller, and we name it as such.
 
-Deployment is therefore gated, and the gate is not traffic. Before the release caps rise: guardians held by independent operators on separate machines, each reading a second data source before signing; a rotation action for the post-quantum set and the pause key, shipped before the operators are separated; a multi-signature administrator with a delay on the custody contracts and a retired Solana upgrade authority; a global mint cap in a rolling window; a per-backing redemption limit against contagion; a balance sheet that reads custody balances from each chain; and a validator set that cannot be bought with the test faucet. Until then, the caps are the guarantee.
+Deployment is therefore gated, and the gate is not traffic. Before the release caps rise: guardians held by independent operators on separate machines, each reading a second data source before signing; the pause key on a machine none of them touch; a multi-signature administrator with a delay on every custody contract, signed from separate devices, and a retired Solana upgrade authority; a per-backing redemption limit against contagion; and a balance sheet that reads custody balances from each chain. Chain 15 has closed three items the previous revision listed: the post-quantum set and the pause key can be rotated, the global mint cap runs in a rolling window, and the test faucet can no longer buy the validator set, since it pays only ten spend keys named at genesis, within 100,000 RAND an epoch, and no validator's voting weight may exceed a third of the set. Until the rest are done, the caps are the guarantee.
 
 Future work includes the challenge delay for large mints, distributed key generation and proactive resharing for both guardian sets, replacement of the threshold attestation by a light-client or succinct proof of the source-chain lock, which would remove the guardian assumption rather than bound it and is the correct long-term target, diversified addresses so that deposits to one wallet are not linkable, and a fee-payment path that does not require a new holder to obtain RAND first.
 
@@ -344,6 +347,7 @@ Future work includes the challenge delay for large mints, distributed key genera
 \begin{thebibliography}{9}
 \bibitem{rand} D. Suhubdy and A. Mohammed, ``Rand: Confidential Arbitrary Computations,'' Draft 3, 2026.
 \bibitem{randimpl} D. Suhubdy and A. Mohammed, ``Rand Protocol: the implementation,'' 2026.
+\bibitem{randbridge} D. Suhubdy and A. Mohammed, ``The Rand bridge,'' Draft 1, September 2026.
 \bibitem{zusdt} D. Suhubdy, ``zUSDT: A Fully-Reserved Shielded Representation of USDT on Solana,'' Bitwyre Research, December 2025, revised August 2026.
 \bibitem{terra} J. Liu, I. Makarov, and A. Schoar, ``Anatomy of a run: The Terra Luna crash,'' NBER Working Paper, 2023.
 \bibitem{hopwood} D. Hopwood et al., ``Zcash protocol specification,'' 2016.
